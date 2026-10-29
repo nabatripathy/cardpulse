@@ -12,6 +12,10 @@ x-s3-creds: &s3-creds
   AWS_ACCESS_KEY_ID: cardpulse
   AWS_SECRET_ACCESS_KEY: cardpulse-local-only
   AWS_REGION: us-east-1
+  # Recent AWS SDKs stream uploads with trailing checksums ("aws-chunked") by default,
+  # which some S3-compatible stores save as file content. Send plain payloads instead.
+  AWS_REQUEST_CHECKSUM_CALCULATION: when_required
+  AWS_RESPONSE_CHECKSUM_VALIDATION: when_required
 
 services:
   # S3-compatible object store. (MinIO's images are no longer served by Docker Hub; see IMP-017.)

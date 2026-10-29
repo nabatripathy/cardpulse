@@ -47,12 +47,32 @@ def main(argv: list[str] | None = None) -> int:
                 print(f"created bucket {bucket} at {endpoint.geturl()}")
             else:
                 print(f"bucket {bucket} exists at {endpoint.geturl()}")
-            return 0
+            return round_trip(s3, bucket)
         except OSError as e:  # store still starting
             last = e
             time.sleep(2)
     print(f"could not reach or create bucket {bucket}: {last}", file=sys.stderr)
     return 1
+
+
+def round_trip(s3, bucket: str) -> int:
+    """Write an object and read it back: an S3 store that alters uploads would corrupt Iceberg files."""
+    payload = bytes(range(256)) * 4096  # 1 MiB, every byte value
+    path = f"{bucket}/_cardpulse_health/round_trip.bin"
+    with s3.open_output_stream(path) as out:
+        out.write(payload)
+    with s3.open_input_stream(path) as src:
+        back = src.read()
+    s3.delete_file(path)
+    if back != payload:
+        print(
+            f"S3 round trip FAILED: wrote {len(payload)} bytes, read {len(back)} bytes back "
+            f"(first bytes {back[:24]!r}); the store is altering uploads",
+            file=sys.stderr,
+        )
+        return 1
+    print(f"S3 round trip OK ({len(payload):,} bytes)")
+    return 0
 
 
 if __name__ == "__main__":
