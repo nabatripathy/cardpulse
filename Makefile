@@ -45,10 +45,13 @@ fmt:  ## Auto-format
 up:  ## Start the docker profile services (MinIO, Iceberg REST, Marquez)
 	docker compose up -d minio minio-init iceberg-rest marquez-db marquez marquez-web
 
-demo-docker:  ## Run generate + ingest + report inside docker against MinIO and Marquez
-	docker compose --profile run run --rm cardpulse
+docker-build:  ## Build the CardPulse image locally (CI publishes ghcr.io/nabatripathy/cardpulse)
+	docker build -f docker/Dockerfile -t cardpulse:local .
+
+demo-docker:  ## Generate, Bronze, Silver and verify inside docker against MinIO, Iceberg REST and Marquez
+	CARDPULSE_PROFILE=$(strip $(PROFILE)) docker compose --profile run run --rm --build cardpulse
 
 down:  ## Stop the docker profile
 	docker compose down
 
-.PHONY: help setup synth ingest silver report demo reset test lint fmt up demo-docker down
+.PHONY: help setup synth ingest silver report demo reset test lint fmt up docker-build demo-docker down

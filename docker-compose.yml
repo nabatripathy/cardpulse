@@ -3,8 +3,9 @@
 #   make up        # start MinIO, the Iceberg REST catalog and Marquez
 #   make demo-docker
 #
-# Status: written for Increment 1 but not started in the build workspace (no Docker
-# daemon there). CI validates this file with `docker compose config`.
+# CI (.github/workflows/docker.yml) starts this whole stack on every pull request, runs
+# the small portfolio through Bronze and Silver, and verifies tables in MinIO and
+# lineage in Marquez. CARDPULSE_PROFILE picks the synthetic portfolio (default: default).
 name: cardpulse
 
 x-minio-creds: &minio-creds
@@ -78,7 +79,7 @@ services:
       MARQUEZ_PORT: 5000
     ports: ["3000:3000"]
 
-  # One-shot runner: generates synthetic data and loads Bronze using configs/env/docker.yaml.
+  # One-shot runner (configs/env/docker.yaml): generate, Bronze, Silver, reports, then verify.
   cardpulse:
     build: {context: ., dockerfile: docker/Dockerfile}
     profiles: [run]
@@ -88,11 +89,13 @@ services:
     volumes:
       - landing:/data/landing
     command: >
-      sh -c "cardpulse-synth --config synthetic-data/config/default.yaml --env docker &&
+      sh -c "python tools/wait_for.py http://iceberg-rest:8181/v1/config http://marquez:5000/api/v1/namespaces &&
+             cardpulse-synth --config synthetic-data/config/${CARDPULSE_PROFILE:-default}.yaml --env docker --clean &&
              cardpulse-ingest run --env docker --all &&
-             cardpulse-silver run --env docker &&
+             cardpulse-silver run --env docker --fail-on-reject &&
              cardpulse-ingest report --env docker &&
-             cardpulse-silver report --env docker"
+             cardpulse-silver report --env docker &&
+             python tools/verify_docker_profile.py --env docker"
 
 volumes:
   minio-data:
