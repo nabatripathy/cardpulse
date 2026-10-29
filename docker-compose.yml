@@ -78,8 +78,7 @@ services:
     volumes:
       - landing:/data/landing
     command: >
-      sh -c "python tools/wait_for.py http://seaweedfs:9333/cluster/status http://iceberg-rest:8181/v1/config
-               http://marquez:5000/api/v1/namespaces &&
+      sh -c "python tools/wait_for.py http://seaweedfs:9333/cluster/status http://iceberg-rest:8181/v1/config http://marquez:5000/api/v1/namespaces &&
              python tools/ensure_bucket.py --env docker &&
              cardpulse-synth --config synthetic-data/config/${CARDPULSE_PROFILE:-default}.yaml --env docker --clean &&
              cardpulse-ingest run --env docker --all &&
