@@ -1,0 +1,69 @@
+entity: posted_transaction
+description: Posted card transactions, typed and deduplicated (append-only fact)
+owner: head_of_card_operations
+order: 90
+source: {bronze_table: bronze.processor_posted_txn_raw, ingest_source: processor.posted_txn, respect_watermark: true}
+target_table: silver.posted_transaction
+quarantine_table: silver.posted_transaction_quarantine
+load: append
+business_key: [txn_id]
+partition_field: post_date
+unit_max_batches: 60
+lookups:
+  - {name: primary_holder, table: silver.customer_account_role, columns: [account_id, customer_id],
+     where: "_is_current AND role_cd = 'PRIMARY'"}
+  - {name: mcc_ref, table: silver.mcc_reference, columns: [mcc]}
+from_sql: >
+  bronze b
+  LEFT JOIN (SELECT account_id, min(customer_id) AS customer_id FROM primary_holder GROUP BY account_id) ph
+    ON ph.account_id = blank(b.ACCT_NO)
+  LEFT JOIN mcc_ref m ON m.mcc = blank(b.MCC)
+dedup:
+  order_by: "_business_date, _file_seq, _row_num"   # the first copy received wins
+  against_target: true
+  partition_column: post_date
+columns:
+  - {name: txn_id, expr: "blank(b.TXN_REF_NO)", type: VARCHAR, nullable: false}
+  - {name: card_token, expr: "blank(b.PAN_TOKEN)", type: VARCHAR, nullable: false}
+  - {name: account_id, expr: "blank(b.ACCT_NO)", type: VARCHAR, nullable: false}
+  - {name: customer_id, expr: "ph.customer_id", type: VARCHAR,
+     description: Primary holder of the account (current version)}
+  - {name: post_date, expr: "ymd(b.POST_DT)", type: DATE, source: b.POST_DT, nullable: false}
+  - {name: txn_local_date, expr: "ymd(b.TXN_DT)", type: DATE, source: b.TXN_DT}
+  - {name: txn_ts, expr: "local_ts(b.TXN_DT, b.TXN_TM, b.TZ_CD)", type: TIMESTAMPTZ, source: b.TXN_DT,
+     description: Transaction instant in UTC, from merchant local date, time and time zone}
+  - {name: amount, expr: "cents(b.TXN_AMT)", type: "DECIMAL(18,2)", source: b.TXN_AMT, nullable: false}
+  - {name: currency_cd, expr: "upper(coalesce(blank(b.CURR_CD), 'USD'))", type: VARCHAR}
+  - {name: merchant_id, expr: "blank(b.MERCH_ID)", type: VARCHAR}
+  - {name: merchant_name, expr: "blank(b.MERCH_NM)", type: VARCHAR}
+  - {name: mcc, expr: "CASE WHEN blank(b.MCC) IS NULL THEN NULL WHEN m.mcc IS NOT NULL THEN m.mcc ELSE '9999' END",
+     type: VARCHAR, description: "Unknown codes map to 9999 (DQ-05)"}
+  - {name: mcc_raw, expr: "blank(b.MCC)", type: VARCHAR}
+  - {name: txn_type_cd, type: VARCHAR, nullable: false,
+     expr: "CASE blank(b.TXN_TYPE) WHEN '05' THEN 'PURCHASE' WHEN '06' THEN 'REFUND' WHEN '07' THEN 'CASH'
+            WHEN '21' THEN 'PAYMENT' ELSE 'UNKNOWN' END"}
+  - {name: channel_cd, type: VARCHAR,
+     expr: "CASE blank(b.ENTRY_MODE) WHEN '05' THEN 'CARD_PRESENT' WHEN '07' THEN 'CARD_PRESENT'
+            WHEN '81' THEN 'ECOM' WHEN '91' THEN 'WALLET' WHEN '10' THEN 'RECURRING' WHEN '00' THEN 'NONE'
+            ELSE 'OTHER' END"}
+  - {name: entry_mode_cd, expr: "blank(b.ENTRY_MODE)", type: VARCHAR}
+  - {name: orig_txn_id, expr: "blank(b.ORIG_TXN_REF_NO)", type: VARCHAR}
+quality:
+  - {id: DQ-01, check: unique, columns: [txn_id], name: Transaction id unique after dedup}
+  - {id: DQ-03, check: referential, column: account_id, ref_table: silver.card_account, ref_column: account_id,
+     max_fail_pct: 0.1, name: Account exists}
+  - {id: DQ-04, check: expression, expr: "amount IS NOT NULL AND abs(amount) <= 50000", max_fail_pct: 0.01,
+     name: Amount present and within limits}
+  - {id: DQ-05, check: expression, expr: "mcc_raw IS NULL OR mcc <> '9999'", severity: warning, max_fail_pct: 0.5,
+     name: MCC in reference}
+  - {id: DQ-06, check: expression, severity: warning, max_fail_pct: 0.1, name: Post date within the file window,
+     expr: "post_date <= _business_date AND post_date >= _business_date - INTERVAL 45 DAY"}
+  - {id: TXN-01, check: accepted_values, column: txn_type_cd, values: [PURCHASE, REFUND, CASH, PAYMENT],
+     max_fail_pct: 0.01, name: Known transaction type}
+  - {id: TXN-02, check: expression, severity: warning, name: Amount sign matches the transaction type,
+     expr: "(txn_type_cd IN ('PURCHASE', 'CASH') AND amount > 0) OR (txn_type_cd IN ('REFUND', 'PAYMENT')
+            AND amount < 0)"}
+  - {id: TXN-03, check: expression, expr: "txn_local_date <= post_date", severity: warning,
+     name: Transacted on or before posting}
+  - {id: TXN-04, check: not_null, columns: [customer_id], severity: warning, max_fail_pct: 0.1,
+     name: Primary holder found}

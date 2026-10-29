@@ -1,0 +1,25 @@
+entity: account_daily_balance
+description: Daily account balances (append-only snapshot fact)
+owner: head_of_card_operations
+order: 80
+source: {bronze_table: bronze.processor_acct_balance_raw, ingest_source: processor.acct_balance}
+target_table: silver.account_daily_balance
+quarantine_table: silver.account_daily_balance_quarantine
+load: append
+business_key: [account_id, balance_date]
+partition_field: balance_date
+dedup: {against_target: true, partition_column: balance_date}
+columns:
+  - {name: account_id, expr: "blank(b.ACCT_NO)", type: VARCHAR, nullable: false}
+  - {name: balance_date, expr: "ymd(b.BUS_DT)", type: DATE, source: b.BUS_DT, nullable: false}
+  - {name: statement_balance, expr: "cents(b.STMT_BAL)", type: "DECIMAL(18,2)", source: b.STMT_BAL}
+  - {name: current_balance, expr: "cents(b.CURR_BAL)", type: "DECIMAL(18,2)", source: b.CURR_BAL, nullable: false}
+  - {name: revolving_balance, expr: "cents(b.REVOLV_BAL)", type: "DECIMAL(18,2)", source: b.REVOLV_BAL}
+  - {name: available_credit, expr: "cents(b.AVAIL_CREDIT)", type: "DECIMAL(18,2)", source: b.AVAIL_CREDIT}
+  - {name: days_past_due, expr: "blank(b.DAYS_PAST_DUE)", type: INTEGER, source: b.DAYS_PAST_DUE}
+quality:
+  - {id: DQ-13, check: unique, columns: [account_id, balance_date], name: One balance per account per day}
+  - {id: DQ-14, check: range, column: days_past_due, min: 0, max: 999, name: Days past due not negative,
+     max_fail_pct: 0.1}
+  - {id: BAL-01, check: referential, column: account_id, ref_table: silver.card_account, ref_column: account_id,
+     max_fail_pct: 0.1, name: Account exists}

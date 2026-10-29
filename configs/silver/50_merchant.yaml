@@ -1,0 +1,21 @@
+entity: merchant
+description: Merchants seen by the card processor (SCD Type 2)
+owner: head_of_card_operations
+classification: internal
+order: 50
+source: {bronze_table: bronze.processor_merchant_raw, ingest_source: processor.merchant}
+target_table: silver.merchant
+quarantine_table: silver.merchant_quarantine
+load: scd2
+snapshot: full
+business_key: [merchant_id]
+columns:
+  - {name: merchant_id, expr: "blank(b.MERCH_ID)", type: VARCHAR, nullable: false}
+  - {name: merchant_name, expr: "blank(b.MERCH_NM)", type: VARCHAR}
+  - {name: mcc, expr: "blank(b.MCC)", type: VARCHAR}
+  - {name: city, expr: "blank(b.CITY)", type: VARCHAR}
+  - {name: state_cd, expr: "upper(blank(b.STATE_CD))", type: VARCHAR}
+  - {name: country_cd, expr: "upper(coalesce(blank(b.COUNTRY_CD), 'US'))", type: VARCHAR}
+quality:
+  - {id: MER-01, check: referential, column: mcc, ref_table: silver.mcc_reference, ref_column: mcc,
+     severity: warning, name: MCC in reference}

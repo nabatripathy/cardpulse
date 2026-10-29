@@ -12,7 +12,7 @@ import warnings
 import pyarrow as pa
 from pyiceberg.catalog import Catalog, load_catalog
 from pyiceberg.exceptions import NamespaceAlreadyExistsError, NoSuchTableError
-from pyiceberg.expressions import EqualTo
+from pyiceberg.expressions import AlwaysTrue, BooleanExpression, EqualTo
 from pyiceberg.table import Table
 
 from cardpulse_frameworks.common.config import EnvConfig
@@ -81,14 +81,63 @@ class PyIcebergWriter:
     def append(self, table: str, data: pa.Table, partition_field: str | None) -> None:
         self._table(table, data.schema, partition_field).append(data)
 
+    def commit(
+        self,
+        table: str,
+        data: pa.Table,
+        partition_field: str | None,
+        replace_filter: BooleanExpression | None = None,
+        properties: dict[str, str] | None = None,
+    ) -> bool:
+        """One atomic commit: delete the rows matching ``replace_filter`` (if any) and add ``data``.
+
+        Returns False when there was nothing to do (no rows and no filter).
+        """
+        if data.num_rows == 0 and replace_filter is None:
+            return False
+        t = self._table(table, data.schema, partition_field)
+        props = properties or {}
+        if replace_filter is None:
+            t.append(data, snapshot_properties=props)
+        else:
+            with warnings.catch_warnings():
+                warnings.filterwarnings("ignore", message="Delete operation did not match any records")
+                t.overwrite(data, overwrite_filter=replace_filter, snapshot_properties=props)
+        return True
+
+    def snapshot_values(self, table: str, key: str) -> list[str]:
+        """Values of one snapshot-summary property across the table's snapshot history."""
+        if not self.table_exists(table):
+            return []
+        t = self.catalog.load_table(table)
+        return [
+            v
+            for s in t.metadata.snapshots
+            if s.summary is not None and (v := s.summary.additional_properties.get(key)) is not None
+        ]
+
+    def delete(self, table: str, delete_filter: BooleanExpression | str) -> None:
+        self._tables.pop(table, None)  # the cached handle would be stale after this commit
+        if self.table_exists(table):
+            with warnings.catch_warnings():
+                warnings.filterwarnings("ignore", message="Delete operation did not match any records")
+                self.catalog.load_table(table).delete(delete_filter)
+
+    def drop_table(self, table: str) -> None:
+        self._tables.pop(table, None)
+        if self.table_exists(table):
+            self.catalog.drop_table(table)
+
     def table_exists(self, table: str) -> bool:
         return self.catalog.table_exists(table)
 
-    def read(self, table: str, row_filter: str | None = None, columns: tuple[str, ...] = ()) -> pa.Table:
+    def read(
+        self,
+        table: str,
+        row_filter: BooleanExpression | str | None = None,
+        columns: tuple[str, ...] = (),
+    ) -> pa.Table:
         if not self.table_exists(table):
             return pa.table({})
         t = self.catalog.load_table(table)
-        kwargs: dict = {"selected_fields": columns or ("*",)}
-        if row_filter:
-            kwargs["row_filter"] = row_filter
-        return t.scan(**kwargs).to_arrow()
+        return t.scan(row_filter=row_filter or AlwaysTrue(), selected_fields=columns or ("*",)).to_arrow()

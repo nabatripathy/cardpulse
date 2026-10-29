@@ -1,0 +1,16 @@
+entity: mcc_reference
+description: Merchant category codes and their category groups (SCD Type 1, full snapshot)
+owner: data_governance
+classification: public
+order: 5
+source: {bronze_table: bronze.reference_mcc_raw, ingest_source: reference.mcc}
+target_table: silver.mcc_reference
+quarantine_table: silver.mcc_reference_quarantine
+load: scd1
+business_key: [mcc]
+columns:
+  - {name: mcc, expr: "blank(b.MCC)", type: VARCHAR, nullable: false}
+  - {name: mcc_description, expr: "blank(b.MCC_DESC)", type: VARCHAR}
+  - {name: category_group, expr: "upper(blank(b.CATEGORY_GRP))", type: VARCHAR, nullable: false}
+quality:
+  - {id: MCC-01, check: expression, expr: "regexp_full_match(mcc, '[0-9]{4}')", name: MCC is four digits, max_fail_pct: 0}

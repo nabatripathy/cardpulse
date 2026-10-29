@@ -18,10 +18,14 @@ synth:  ## Generate the synthetic portfolio into .lakehouse/landing (PROFILE=sma
 ingest:  ## Load every landed file into Bronze (local profile)
 	$(BIN)/cardpulse-ingest run --env local --all
 
-report:  ## Show Bronze row counts, file outcomes, quarantine and watermarks
+report:  ## Show Bronze and Silver reports: row counts, outcomes, quarantine, DQ, watermarks
 	$(BIN)/cardpulse-ingest report --env local
+	$(BIN)/cardpulse-silver report --env local
 
-demo: reset synth ingest report  ## Full local demo: reset, generate, ingest, report
+silver:  ## Conform Bronze into Silver (typing, dedup, SCD2 history, DQ gates)
+	$(BIN)/cardpulse-silver run --env local
+
+demo: reset synth ingest silver report  ## Full local demo: reset, generate, Bronze, Silver, report
 
 reset:  ## Delete the local lakehouse (landing, tables, catalog, lineage)
 	rm -rf .lakehouse
@@ -47,4 +51,4 @@ demo-docker:  ## Run generate + ingest + report inside docker against MinIO and 
 down:  ## Stop the docker profile
 	docker compose down
 
-.PHONY: help setup synth ingest report demo reset test lint fmt up demo-docker down
+.PHONY: help setup synth ingest silver report demo reset test lint fmt up demo-docker down

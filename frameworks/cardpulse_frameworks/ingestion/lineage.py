@@ -44,6 +44,7 @@ class LineageEmitter:
         inputs: list[dict[str, object]] | None = None,
         outputs: list[dict[str, object]] | None = None,
         error: str | None = None,
+        job_type: str = "INGEST",
     ) -> dict[str, object]:
         run_facets: dict[str, object] = {}
         if error:
@@ -61,7 +62,7 @@ class LineageEmitter:
                 "name": job_name,
                 "facets": {
                     "jobType": _facet(
-                        "2-0-3/JobTypeJobFacet.json", processingType="BATCH", integration="CARDPULSE", jobType="INGEST"
+                        "2-0-3/JobTypeJobFacet.json", processingType="BATCH", integration="CARDPULSE", jobType=job_type
                     )
                 },
             },

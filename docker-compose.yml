@@ -90,7 +90,9 @@ services:
     command: >
       sh -c "cardpulse-synth --config synthetic-data/config/default.yaml --env docker &&
              cardpulse-ingest run --env docker --all &&
-             cardpulse-ingest report --env docker"
+             cardpulse-silver run --env docker &&
+             cardpulse-ingest report --env docker &&
+             cardpulse-silver report --env docker"
 
 volumes:
   minio-data:

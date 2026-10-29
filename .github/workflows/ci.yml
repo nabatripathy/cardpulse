@@ -26,14 +26,18 @@ jobs:
       - name: Block card numbers in the repository (PCI guard)
         run: python tools/scan_repo_for_pans.py
       - name: Validate source specs
-        run: python -c "from cardpulse_frameworks.ingestion.spec import load_specs; print(len(load_specs('configs/sources')), 'specs valid')"
+        run: |
+          python -c "from cardpulse_frameworks.ingestion.spec import load_specs; print(len(load_specs('configs/sources')), 'source specs valid')"
+          python -c "from cardpulse_frameworks.silver.spec import load_silver_specs; print(len(load_silver_specs('configs/silver')), 'silver specs valid')"
       - name: Unit and integration tests
         run: pytest
       - name: End-to-end smoke run (small portfolio, local profile)
         run: |
           cardpulse-synth --config synthetic-data/config/small.yaml --env local --clean
           cardpulse-ingest run --env local --all
+          cardpulse-silver run --env local --fail-on-reject
           cardpulse-ingest report --env local
+          cardpulse-silver report --env local
 
   compose:
     runs-on: ubuntu-latest

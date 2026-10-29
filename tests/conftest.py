@@ -39,3 +39,35 @@ def tiny_landing(tmp_path_factory) -> tuple[Path, object]:
     root = tmp_path_factory.mktemp("landing")
     manifest = generate(TINY, root)
     return root, manifest
+
+
+def build_lake(tmp: Path, landing: Path, silver: bool = True) -> dict:
+    """Copy a landing zone into ``tmp``, load Bronze and (optionally) Silver; return the handles."""
+    import shutil
+
+    from cardpulse_frameworks.common.config import REPO_ROOT
+    from cardpulse_frameworks.ingestion.lineage import LineageEmitter
+    from cardpulse_frameworks.ingestion.pipeline import ingest_source
+    from cardpulse_frameworks.ingestion.spec import load_specs
+    from cardpulse_frameworks.ingestion.writers import make_writer
+    from cardpulse_frameworks.silver.pipeline import SilverPipeline
+    from cardpulse_frameworks.silver.spec import load_silver_specs
+
+    shutil.copytree(landing, tmp / "landing", dirs_exist_ok=True)
+    env = make_env(tmp)
+    writer, lineage = make_writer(env), LineageEmitter(env)
+    bronze_specs = load_specs(REPO_ROOT / "configs" / "sources")
+    silver_specs = load_silver_specs(REPO_ROOT / "configs" / "silver")
+    bronze = {s.name: ingest_source(s, env.landing_path(), writer, lineage) for s in bronze_specs}
+    pipe = SilverPipeline(writer, lineage)
+    silver = {s.entity: pipe.run_entity(s) for s in silver_specs} if silver else {}
+    return {
+        "env": env,
+        "writer": writer,
+        "lineage": lineage,
+        "pipe": pipe,
+        "bronze": bronze,
+        "silver": silver,
+        "bronze_specs": {s.name: s for s in bronze_specs},
+        "silver_specs": {s.entity: s for s in silver_specs},
+    }

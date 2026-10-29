@@ -29,3 +29,16 @@ index records the decisions that shape this repository.
 | IMP-006 | A loaded file that changes in landing raises an alert but keeps the control log and Bronze unchanged until reprocessed | Watermarks stay true to what is in Bronze |
 | IMP-007 | Watermark = highest contiguous loaded sequence per business date, computed from the control log | Silver micro-batches never skip over a missing or rejected file (PT-05) |
 | IMP-008 | Synthetic account numbers, like card tokens, are Luhn-invalid by construction | The repository PAN scan flagged a Luhn-valid account number in a test on its first run; card-like identifiers must never look like PANs to DLP tools |
+
+## Decisions made during Increment 2 (Silver)
+
+| ID | Decision | Rationale |
+|---|---|---|
+| IMP-009 | DuckDB transforms over Arrow; PyIceberg reads and writes the tables (no DuckDB Iceberg extension) | Runs on a laptop with no network access or JVM; the transform logic is plain SQL that maps to Spark SQL or Snowflake later |
+| IMP-010 | Silver specs declare each column as a SQL expression plus a type; the framework wraps it in `TRY_CAST` and generates `NN-` (required) and `CAST-` (conversion) rules | Specs stay readable and reviewable; a bad value is caught by a named rule instead of failing the job |
+| IMP-011 | SCD Type 2 in one atomic commit: overwrite filtered on the surrogate keys of the versions being closed, adding closed and new versions together | Readers never see a half-applied change; a same-day correction replaces in place rather than creating a zero-length version |
+| IMP-012 | Batch *versions* (batch id + checksum) are the unit of work, stamped on Silver commits and recorded in `ops.silver_unit_log` | Exactly-once across crashes; a corrected resend is recognised as new work |
+| IMP-013 | History entities apply one business date per unit, in order; an older snapshot arriving late is held as `PENDING_REBUILD`, and `rebuild` replays the entity from Bronze | Applying an old snapshot after a newer one would corrupt history; Bronze is the replayable source of truth (P7) |
+| IMP-014 | DQ gate: critical row failures are quarantined; if any critical rule exceeds its threshold the whole unit is rejected and nothing is written; `--retry-rejected` re-evaluates after a fix | Bad data never reaches Silver silently, and a systemic problem stops the line instead of being partially loaded |
+| IMP-015 | Silver follows the Bronze watermark: batches above it wait | Downstream facts never skip a missing micro-batch |
+| IMP-016 | The generator writes a prior-day master snapshot from a separate random stream | Silver history is exercised in every demo and test, while transaction files stay identical to Increment 1 |

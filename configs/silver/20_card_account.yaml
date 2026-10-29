@@ -1,0 +1,33 @@
+entity: card_account
+description: Card accounts (SCD Type 2 over daily full snapshots)
+owner: head_of_card_operations
+order: 20
+source: {bronze_table: bronze.processor_account_raw, ingest_source: processor.account}
+target_table: silver.card_account
+quarantine_table: silver.card_account_quarantine
+load: scd2
+snapshot: full
+business_key: [account_id]
+columns:
+  - {name: account_id, expr: "blank(b.ACCT_NO)", type: VARCHAR, nullable: false}
+  - {name: product_cd, expr: "upper(blank(b.PRODUCT_CD))", type: VARCHAR, nullable: false}
+  - {name: open_date, expr: "ymd(b.OPEN_DT)", type: DATE, source: b.OPEN_DT, nullable: false}
+  - {name: close_date, expr: "ymd(b.CLOSE_DT)", type: DATE, source: b.CLOSE_DT}
+  - {name: status_cd, expr: "upper(blank(b.STATUS_CD))", type: VARCHAR, nullable: false}
+  - {name: credit_limit, expr: "blank(b.CREDIT_LIMIT)", type: "DECIMAL(18,2)", source: b.CREDIT_LIMIT}
+  - {name: apr_bps, expr: "blank(b.APR_BPS)", type: INTEGER, source: b.APR_BPS}
+  - {name: cycle_day, expr: "blank(b.CYCLE_DAY)", type: INTEGER, source: b.CYCLE_DAY}
+  - {name: is_fraud_flagged, expr: "coalesce(yn(b.FRAUD_FLG), FALSE)", type: BOOLEAN}
+  - {name: has_acquisition_bonus, expr: "coalesce(yn(b.ACQ_BONUS_FLG), FALSE)", type: BOOLEAN,
+     description: Earning a new-account sign-up bonus (suppression rule S12)}
+quality:
+  - {id: DQ-08, check: accepted_values, column: status_cd, values: [OPEN, CLOSED, CHARGED_OFF, BLOCKED],
+     name: Status in the allowed code list, max_fail_pct: 0}
+  - {id: DQ-09, check: range, column: credit_limit, min: 0.01, where: "status_cd = 'OPEN'",
+     name: Credit limit above zero for open accounts, max_fail_pct: 0}
+  - {id: ACC-01, check: expression, expr: "close_date IS NULL OR close_date >= open_date",
+     name: Closed on or after opening}
+  - {id: ACC-02, check: range, column: cycle_day, min: 1, max: 28, name: Billing cycle day 1-28}
+  - {id: ACC-03, check: accepted_values, column: product_cd, severity: warning, name: Known product,
+     values: [NO_FEE_BASIC, REWARDS_CASH, TRAVEL_PREMIUM, BT_LOW_APR]}
+  - {id: ACC-04, check: unique, columns: [account_id], name: One row per account}
