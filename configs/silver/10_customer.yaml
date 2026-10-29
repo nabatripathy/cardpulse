@@ -1,0 +1,27 @@
+entity: customer
+description: Card customers (SCD Type 2 over daily full snapshots)
+owner: head_of_card_operations
+classification: restricted
+order: 10
+source: {bronze_table: bronze.processor_customer_raw, ingest_source: processor.customer}
+target_table: silver.customer
+quarantine_table: silver.customer_quarantine
+load: scd2
+snapshot: full
+business_key: [customer_id]
+columns:
+  - {name: customer_id, expr: "blank(b.CUST_ID)", type: VARCHAR, nullable: false}
+  - {name: first_name, expr: "blank(b.FIRST_NM)", type: VARCHAR, pii: true}
+  - {name: last_name, expr: "blank(b.LAST_NM)", type: VARCHAR, pii: true}
+  - {name: birth_year, expr: "blank(b.BIRTH_YR)", type: INTEGER, source: b.BIRTH_YR, pii: true}
+  - {name: state_cd, expr: "upper(blank(b.STATE_CD))", type: VARCHAR}
+  - {name: zip3, expr: "blank(b.ZIP3)", type: VARCHAR}
+  - {name: customer_since_date, expr: "ymd(b.CUST_SINCE_DT)", type: DATE, source: b.CUST_SINCE_DT}
+  - {name: segment_cd, expr: "upper(blank(b.SEGMENT_CD))", type: VARCHAR}
+  - {name: is_deceased, expr: "coalesce(yn(b.DECEASED_FLG), FALSE)", type: BOOLEAN}
+quality:
+  - {id: CUS-01, check: range, column: birth_year, min: 1900, max: 2010, name: Plausible birth year}
+  - {id: CUS-02, check: not_null, columns: [state_cd], severity: warning, name: State is present}
+  - {id: CUS-03, check: accepted_values, column: segment_cd, values: [MASS, AFFLUENT, PREMIER, STUDENT],
+     severity: warning, name: Known segment}
+  - {id: CUS-04, check: unique, columns: [customer_id], name: One row per customer}

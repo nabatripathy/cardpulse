@@ -147,7 +147,10 @@ class FileLog:
 
     def latest(self, spec: SourceSpec) -> dict[str, dict[str, object]]:
         """Latest log entry per file name for this source."""
-        t = self.writer.read(FILE_LOG_TABLE, row_filter=f"source == '{spec.source}' and entity == '{spec.entity}'")
+        return self.latest_for(spec.source, spec.entity)
+
+    def latest_for(self, source: str, entity: str) -> dict[str, dict[str, object]]:
+        t = self.writer.read(FILE_LOG_TABLE, row_filter=f"source == '{source}' and entity == '{entity}'")
         latest: dict[str, dict[str, object]] = {}
         for row in t.to_pylist() if t.num_rows else []:
             prev = latest.get(row["file_name"])

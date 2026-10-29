@@ -1,0 +1,27 @@
+entity: marketing_consent
+description: Marketing consent by channel and purpose, and do-not-solicit flags (SCD Type 2)
+owner: chief_privacy_officer
+order: 60
+source: {bronze_table: bronze.prefcenter_consent_raw, ingest_source: prefcenter.consent}
+target_table: silver.marketing_consent
+quarantine_table: silver.marketing_consent_quarantine
+load: scd2
+snapshot: full
+business_key: [customer_id, channel_cd, purpose_cd]
+columns:
+  - {name: customer_id, expr: "blank(b.customer_id)", type: VARCHAR, nullable: false}
+  - {name: channel_cd, expr: "upper(blank(b.channel_cd))", type: VARCHAR, nullable: false}
+  - {name: purpose_cd, expr: "upper(blank(b.purpose_cd))", type: VARCHAR, nullable: false}
+  - {name: consent_status, expr: "upper(blank(b.consent_status))", type: VARCHAR, nullable: false}
+  - {name: source_cd, expr: "upper(blank(b.source_cd))", type: VARCHAR}
+  - {name: captured_ts, expr: "try_strptime(blank(b.captured_ts), '%Y-%m-%dT%H:%M:%SZ')", type: TIMESTAMPTZ,
+     source: b.captured_ts, nullable: false}
+quality:
+  # Consent drives suppression (S05-S07): every rule here is zero tolerance.
+  - {id: CON-01, check: accepted_values, column: channel_cd, values: [EMAIL, PUSH, SMS, MAIL, ALL], max_fail_pct: 0}
+  - {id: CON-02, check: accepted_values, column: purpose_cd, values: [MARKETING, DO_NOT_SOLICIT], max_fail_pct: 0}
+  - {id: CON-03, check: accepted_values, column: consent_status, values: [OPT_IN, OPT_OUT, ACTIVE], max_fail_pct: 0}
+  - {id: DQ-12, check: expression, expr: "captured_ts < CAST(_business_date AS TIMESTAMPTZ) + INTERVAL 1 DAY",
+     name: Consent not captured in the future, max_fail_pct: 0}
+  - {id: CON-04, check: referential, column: customer_id, ref_table: silver.customer, ref_column: customer_id,
+     max_fail_pct: 0, name: Customer exists}

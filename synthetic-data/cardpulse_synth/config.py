@@ -50,6 +50,13 @@ class SynthConfig(BaseModel):
     median_monthly_spend: float = 900.0
     avg_ticket: float = 90.0
 
+    # Prior-day master snapshot (business date - 1) so Silver builds SCD Type 2 history.
+    prior_snapshot: bool = True
+    prior_cli_rate: float = 0.03  # open accounts whose credit limit was raised today
+    prior_segment_change_rate: float = 0.015
+    prior_merchant_rename_rate: float = 0.01
+    prior_consent_change_rate: float = 0.02  # marketing preferences changed today
+
     defects: DefectConfig = Field(default_factory=DefectConfig)
 
 

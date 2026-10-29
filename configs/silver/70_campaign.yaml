@@ -1,0 +1,27 @@
+entity: campaign
+description: Campaigns and their offers, with Compliance approval ids (SCD Type 2)
+owner: head_of_card_marketing
+classification: internal
+order: 70
+source: {bronze_table: bronze.campaign_campaign_raw, ingest_source: campaign.campaign}
+target_table: silver.campaign
+quarantine_table: silver.campaign_quarantine
+load: scd2
+snapshot: full
+business_key: [campaign_id]
+columns:
+  - {name: campaign_id, expr: "blank(b.campaign_id)", type: VARCHAR, nullable: false}
+  - {name: campaign_name, expr: "blank(b.campaign_name)", type: VARCHAR}
+  - {name: trigger_cd, expr: "blank(b.trigger_cd)", type: VARCHAR, nullable: false}
+  - {name: offer_cd, expr: "blank(b.offer_cd)", type: VARCHAR, nullable: false}
+  - {name: offer_value, expr: "blank(b.offer_value)", type: VARCHAR}
+  - {name: est_cost_usd, expr: "blank(b.est_cost_usd)", type: "DECIMAL(10,2)", source: b.est_cost_usd}
+  - {name: start_date, expr: "blank(b.start_date)", type: DATE, source: b.start_date, nullable: false}
+  - {name: end_date, expr: "blank(b.end_date)", type: DATE, source: b.end_date, nullable: false}
+  - {name: compliance_approval_id, expr: "blank(b.compliance_approval_id)", type: VARCHAR, nullable: false,
+     description: Suppression rule S10 blocks offers without one}
+  - {name: product_scope, expr: "blank(b.product_scope)", type: VARCHAR}
+quality:
+  - {id: CMP-01, check: expression, expr: "end_date >= start_date", name: Ends on or after it starts, max_fail_pct: 0}
+  - {id: CMP-02, check: expression, expr: "regexp_full_match(compliance_approval_id, 'CA-[0-9]{4}-[0-9]{4}')",
+     name: Compliance approval id format, max_fail_pct: 0}

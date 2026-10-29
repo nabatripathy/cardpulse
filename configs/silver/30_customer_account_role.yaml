@@ -1,0 +1,29 @@
+entity: customer_account_role
+description: Who holds or uses each card account (SCD Type 2 over daily full snapshots)
+owner: head_of_card_operations
+order: 30
+source: {bronze_table: bronze.processor_cust_acct_role_raw, ingest_source: processor.cust_acct_role}
+target_table: silver.customer_account_role
+quarantine_table: silver.customer_account_role_quarantine
+load: scd2
+snapshot: full
+business_key: [customer_id, account_id, role_cd]
+columns:
+  - {name: customer_id, expr: "blank(b.CUST_ID)", type: VARCHAR, nullable: false}
+  - {name: account_id, expr: "blank(b.ACCT_NO)", type: VARCHAR, nullable: false}
+  - {name: role_cd, expr: "CASE upper(blank(b.ROLE_CD)) WHEN 'P' THEN 'PRIMARY' WHEN 'A' THEN 'AUTHORIZED_USER'
+     ELSE upper(blank(b.ROLE_CD)) END", type: VARCHAR, nullable: false}
+  - {name: effective_date, expr: "ymd(b.EFF_DT)", type: DATE, source: b.EFF_DT}
+quality:
+  - {id: ROL-01, check: accepted_values, column: role_cd, values: [PRIMARY, AUTHORIZED_USER], max_fail_pct: 0,
+     name: Known role}
+  - {id: ROL-02, check: referential, column: account_id, ref_table: silver.card_account, ref_column: account_id,
+     max_fail_pct: 0.1, name: Account exists}
+  - {id: ROL-03, check: referential, column: customer_id, ref_table: silver.customer, ref_column: customer_id,
+     max_fail_pct: 0.1, name: Customer exists}
+  - id: DQ-10
+    check: dataset_sql
+    name: Every account has exactly one primary holder
+    sql: >
+      SELECT count(*) FROM (SELECT account_id FROM {table} GROUP BY account_id
+      HAVING count(*) FILTER (WHERE role_cd = 'PRIMARY') <> 1)

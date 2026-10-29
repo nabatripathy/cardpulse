@@ -69,3 +69,17 @@ class SparkIcebergWriter:
         if columns:
             df = df.select(*columns)
         return pa.Table.from_pandas(df.toPandas(), preserve_index=False)
+
+    # Silver operations (Increment 2). On Spark these become MERGE INTO statements;
+    # they are implemented with the EMR profile, alongside its integration tests.
+    def commit(self, table, data, partition_field, replace_filter=None, properties=None) -> bool:
+        raise NotImplementedError("Silver commits on Spark arrive with the EMR profile")
+
+    def snapshot_values(self, table: str, key: str) -> list[str]:
+        raise NotImplementedError("Silver commits on Spark arrive with the EMR profile")
+
+    def delete(self, table: str, delete_filter) -> None:
+        self.spark.sql(f"DELETE FROM {self._fq(table)} WHERE {delete_filter}")  # noqa: S608 - filter built internally
+
+    def drop_table(self, table: str) -> None:
+        self.spark.sql(f"DROP TABLE IF EXISTS {self._fq(table)}")

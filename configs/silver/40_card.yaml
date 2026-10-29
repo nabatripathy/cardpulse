@@ -1,0 +1,26 @@
+entity: card
+description: Plastics issued on each account; card numbers are tokens only (SCD Type 2)
+owner: head_of_card_operations
+order: 40
+source: {bronze_table: bronze.processor_card_raw, ingest_source: processor.card}
+target_table: silver.card
+quarantine_table: silver.card_quarantine
+load: scd2
+snapshot: full
+business_key: [card_token]
+columns:
+  - {name: card_token, expr: "blank(b.PAN_TOKEN)", type: VARCHAR, nullable: false}
+  - {name: account_id, expr: "blank(b.ACCT_NO)", type: VARCHAR, nullable: false}
+  - {name: customer_id, expr: "blank(b.CUST_ID)", type: VARCHAR, nullable: false}
+  - {name: issue_date, expr: "ymd(b.ISSUE_DT)", type: DATE, source: b.ISSUE_DT}
+  - {name: activation_date, expr: "ymd(b.ACTIVATION_DT)", type: DATE, source: b.ACTIVATION_DT}
+  - {name: is_activated, expr: "blank(b.ACTIVATION_DT) IS NOT NULL", type: BOOLEAN}
+  - {name: expiry_ym, expr: "blank(b.EXPIRY_YM)", type: VARCHAR}
+  - {name: is_wallet_provisioned, expr: "coalesce(yn(b.WALLET_FLG), FALSE)", type: BOOLEAN}
+quality:
+  - {id: CRD-01, check: expression, expr: "activation_date IS NULL OR activation_date >= issue_date",
+     name: Activated on or after issue}
+  - {id: CRD-02, check: referential, column: account_id, ref_table: silver.card_account, ref_column: account_id,
+     max_fail_pct: 0.1, name: Account exists}
+  - {id: CRD-03, check: expression, expr: "regexp_full_match(expiry_ym, '20[0-9]{2}(0[1-9]|1[0-2])')",
+     severity: warning, name: Expiry is YYYYMM}

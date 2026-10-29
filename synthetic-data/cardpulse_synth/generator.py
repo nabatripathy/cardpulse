@@ -126,6 +126,7 @@ class Manifest:
     rows: dict[str, int] = field(default_factory=dict)
     ground_truth: dict[str, int] = field(default_factory=dict)
     defects: dict[str, object] = field(default_factory=dict)
+    prior_snapshot: dict[str, object] = field(default_factory=dict)
 
     def write(self, root: Path) -> Path:
         path = root / "_manifest.json"
@@ -394,6 +395,7 @@ class SyntheticBank:
         root.mkdir(parents=True, exist_ok=True)
         bd = self.bd
         m = Manifest(business_date=bd.isoformat(), seed=self.cfg.seed)
+        self._snap: dict[str, list] = {}
 
         def track(entity: str, files: int, rows: int) -> None:
             m.files[entity] = m.files.get(entity, 0) + files
@@ -416,6 +418,7 @@ class SyntheticBank:
         )
         write_hdt(root, "processor", "customer", "CUSTOMER", bd, 1, CUSTOMER_COLUMNS, cust_rows)
         track("processor.customer", 1, len(cust_rows))
+        self._snap["customer"] = cust_rows
 
         # Accounts
         acct_rows = list(
@@ -435,6 +438,7 @@ class SyntheticBank:
         )
         write_hdt(root, "processor", "account", "ACCOUNT", bd, 1, ACCOUNT_COLUMNS, acct_rows)
         track("processor.account", 1, len(acct_rows))
+        self._snap["account"] = acct_rows
 
         # Customer-account roles
         role_cust = np.concatenate([self.acct_cust, self.au_cust])
@@ -452,6 +456,7 @@ class SyntheticBank:
         )
         write_hdt(root, "processor", "cust_acct_role", "CUST_ACCT_ROLE", bd, 1, ROLE_COLUMNS, role_rows)
         track("processor.cust_acct_role", 1, len(role_rows))
+        self._snap["cust_acct_role"] = role_rows
 
         # Cards
         expiry = np.char.replace(
@@ -475,6 +480,7 @@ class SyntheticBank:
         )
         write_hdt(root, "processor", "card", "CARD", bd, 1, CARD_COLUMNS, card_rows)
         track("processor.card", 1, len(card_rows))
+        self._snap["card"] = card_rows
 
         # Merchants and MCC reference
         merch_rows = list(
@@ -490,9 +496,11 @@ class SyntheticBank:
         )
         write_hdt(root, "processor", "merchant", "MERCHANT", bd, 1, MERCHANT_COLUMNS, merch_rows)
         track("processor.merchant", 1, len(merch_rows))
+        self._snap["merchant"] = merch_rows
         mcc_rows = [(m_[0], m_[1], m_[2]) for m_ in ref.MCC_TABLE]
         write_csv(root, "reference", "mcc", bd, 1, MCC_COLUMNS, mcc_rows)
         track("reference.mcc", 1, len(mcc_rows))
+        self._snap["mcc"] = mcc_rows
 
         # Daily balances (prior-day close, delivered on the business date)
         bal_rows = list(
@@ -512,6 +520,9 @@ class SyntheticBank:
         self._write_campaigns(root, track)
         self._write_transactions(root, m, track)
 
+        if self.cfg.prior_snapshot:
+            self._write_prior_snapshot(root, m, track)
+
         m.ground_truth = {
             "accounts": int(self.na),
             "customers": int(self.cfg.n_customers),
@@ -530,6 +541,78 @@ class SyntheticBank:
         }
         m.write(root)
         return m
+
+    def _write_prior_snapshot(self, root: Path, m: Manifest, track) -> None:
+        """Master files for the day before the business date, so Silver builds real SCD2 history.
+
+        Differences from today's snapshot, all from a separate random stream so the
+        main portfolio (and every transaction file) is unchanged:
+        accounts, customers, roles and cards created today are absent; some accounts had
+        a lower credit limit (credit line increase today); some customers were in another
+        segment; cards activated today were not yet active; some merchants were renamed;
+        some marketing preferences were the opposite (changed today).
+        """
+        cfg, prior = self.cfg, self.bd - timedelta(days=1)
+        rng2 = np.random.default_rng(cfg.seed + 104_729)
+        today = f"{self.bd:%Y%m%d}"
+        changes: dict[str, int] = {}
+
+        new_accts = {self.acct_no[i] for i in np.nonzero(self.open_o == self.bd_o)[0]}
+        new_custs = {self.cust_id[i] for i in np.nonzero(self.cust_since == self.bd_o)[0]}
+
+        cust = []
+        for r in self._snap["customer"]:
+            if r[0] in new_custs:
+                continue
+            if rng2.random() < cfg.prior_segment_change_rate:
+                r = (*r[:7], "MASS" if r[7] != "MASS" else "AFFLUENT", r[8])
+                changes["customer_segment"] = changes.get("customer_segment", 0) + 1
+            cust.append(r)
+        acct = []
+        for r in self._snap["account"]:
+            if r[0] in new_accts:
+                continue
+            if r[4] == "OPEN" and int(r[5]) > 1000 and rng2.random() < cfg.prior_cli_rate:
+                r = (*r[:5], str(max(500, int(r[5]) - int(rng2.choice([500, 1000, 1500, 2000])))), *r[6:])
+                changes["account_credit_limit"] = changes.get("account_credit_limit", 0) + 1
+            acct.append(r)
+        roles = [r for r in self._snap["cust_acct_role"] if r[1] not in new_accts and r[3] != today]
+        cards = []
+        for r in self._snap["card"]:
+            if r[1] in new_accts or r[3] == today:
+                continue
+            if r[4] == today:
+                r = (*r[:4], "", *r[5:])
+                changes["card_activated_today"] = changes.get("card_activated_today", 0) + 1
+            cards.append(r)
+        merch = []
+        for r in self._snap["merchant"]:
+            if rng2.random() < cfg.prior_merchant_rename_rate:
+                r = (r[0], r[1].rsplit(" #", 1)[0] + " INC", *r[2:])
+                changes["merchant_renamed"] = changes.get("merchant_renamed", 0) + 1
+            merch.append(r)
+        consent = [r for r in self._snap.get("consent_prior", []) if r[0] not in new_custs]
+        changes["consent_changed_today"] = sum(
+            1 for a, b in zip(self._snap.get("consent_prior", []), self._consent_today, strict=True) if a[3] != b[3]
+        )
+
+        for entity, ftype, cols, rows in [
+            ("customer", "CUSTOMER", CUSTOMER_COLUMNS, cust),
+            ("account", "ACCOUNT", ACCOUNT_COLUMNS, acct),
+            ("cust_acct_role", "CUST_ACCT_ROLE", ROLE_COLUMNS, roles),
+            ("card", "CARD", CARD_COLUMNS, cards),
+            ("merchant", "MERCHANT", MERCHANT_COLUMNS, merch),
+        ]:
+            write_hdt(root, "processor", entity, ftype, prior, 1, cols, rows)
+            track(f"processor.{entity}", 1, len(rows))
+        write_csv(root, "reference", "mcc", prior, 1, MCC_COLUMNS, self._snap["mcc"])
+        track("reference.mcc", 1, len(self._snap["mcc"]))
+        write_csv(root, "prefcenter", "consent", prior, 1, CONSENT_COLUMNS, consent)
+        track("prefcenter.consent", 1, len(consent))
+        write_csv(root, "campaign", "campaign", prior, 1, CAMPAIGN_COLUMNS, self._snap["campaign"])
+        track("campaign.campaign", 1, len(self._snap["campaign"]))
+        changes["accounts_opened_today"] = len(new_accts)
+        m.prior_snapshot = {"business_date": prior.isoformat(), "changes": changes}
 
     def _write_consent(self, root: Path, track) -> None:
         rng, n = self.rng, self.cfg.n_customers
@@ -567,6 +650,20 @@ class SyntheticBank:
             )
             for i in dns
         ]
+        if self.cfg.prior_snapshot:
+            # Preferences changed today: today's row shows the new status captured this morning;
+            # the prior-day snapshot keeps the old status.
+            rng2 = np.random.default_rng(self.cfg.seed + 7919)
+            flip = np.nonzero(rng2.random(len(rows)) < self.cfg.prior_consent_change_rate)[0]
+            prior = list(rows)
+            for i in flip:
+                c, ch, pur, st, src, _ = rows[i]
+                if pur != "MARKETING":
+                    continue
+                prior[i] = (c, ch, pur, "OPT_OUT" if st == "OPT_IN" else "OPT_IN", src, rows[i][5])
+                rows[i] = (c, ch, pur, st, "APP", f"{self.bd}T{8 + int(rng2.integers(0, 4)):02d}:15:00Z")
+            self._snap["consent_prior"] = prior
+            self._consent_today = rows
         write_csv(root, "prefcenter", "consent", self.bd, 1, CONSENT_COLUMNS, rows)
         track("prefcenter.consent", 1, len(rows))
 
@@ -626,6 +723,7 @@ class SyntheticBank:
         ]
         write_csv(root, "campaign", "campaign", self.bd, 1, CAMPAIGN_COLUMNS, rows)
         track("campaign.campaign", 1, len(rows))
+        self._snap["campaign"] = rows
 
     def _write_transactions(self, root: Path, m: Manifest, track) -> None:
         cfg, bd_o = self.cfg, self.bd_o
