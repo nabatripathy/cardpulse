@@ -40,7 +40,7 @@ services:
     image: postgres:16-alpine
     environment:
       POSTGRES_USER: marquez
-      POSTGRES_PASSWORD: marquez-local-only
+      POSTGRES_PASSWORD: marquez  # the Marquez image connects with its default password
       POSTGRES_DB: marquez
     volumes: [marquez-db:/var/lib/postgresql/data]
     healthcheck:
@@ -57,7 +57,7 @@ services:
       MARQUEZ_ADMIN_PORT: 5001
       POSTGRES_HOST: marquez-db
       POSTGRES_USER: marquez
-      POSTGRES_PASSWORD: marquez-local-only
+      POSTGRES_PASSWORD: marquez  # the Marquez image connects with its default password
     ports: ["5000:5000", "5001:5001"]
 
   marquez-web:
