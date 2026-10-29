@@ -94,9 +94,7 @@ jobs:
           docker compose --profile run run --rm cardpulse sh -c "
             cardpulse-ingest run --env docker --all &&
             cardpulse-silver run --env docker --fail-on-reject" 2>&1 | tee rerun.txt
-          if grep -E '^\| [a-z_.]+ +\| +[1-9]' rerun.txt | grep -v -E 'Skipped|Units'; then
-            echo "::error::the rerun loaded or applied something"; exit 1
-          fi
+          python3 tools/check_rerun_noop.py rerun.txt
 
       - name: Lineage in Marquez
         run: |
