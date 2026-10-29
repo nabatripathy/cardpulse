@@ -1,0 +1,24 @@
+source: processor
+entity: account
+description: Card account master snapshot from the card processor
+owner: head_of_card_operations
+classification: confidential
+format: hdt
+file_type: ACCOUNT
+file_glob: "processor/account/business_date=*/processor_account_*.dat"
+file_name_regex: 'processor_account_(?P<business_date>\d{8})_(?P<seq>\d{4})\.dat'
+target_table: bronze.processor_account_raw
+quarantine_table: bronze.processor_account_raw_quarantine
+key_columns: [ACCT_NO]
+trailer: {record_count: true}
+columns:
+  - {name: ACCT_NO, required: true}
+  - {name: PRODUCT_CD, required: true}
+  - {name: OPEN_DT, required: true}
+  - {name: CLOSE_DT}
+  - {name: STATUS_CD, required: true}
+  - {name: CREDIT_LIMIT, description: Whole dollars}
+  - {name: APR_BPS}
+  - {name: CYCLE_DAY}
+  - {name: FRAUD_FLG}
+  - {name: ACQ_BONUS_FLG, description: Account is earning a new-account sign-up bonus (S12)}

@@ -1,0 +1,20 @@
+source: processor
+entity: acct_balance
+description: Daily account balances (prior-day close) from the card processor
+owner: head_of_card_operations
+format: hdt
+file_type: ACCT_BALANCE
+file_glob: "processor/acct_balance/business_date=*/processor_acct_balance_*.dat"
+file_name_regex: 'processor_acct_balance_(?P<business_date>\d{8})_(?P<seq>\d{4})\.dat'
+target_table: bronze.processor_acct_balance_raw
+quarantine_table: bronze.processor_acct_balance_raw_quarantine
+key_columns: [ACCT_NO, BUS_DT]
+trailer: {record_count: true, amount_total_field: CURR_BAL}
+columns:
+  - {name: ACCT_NO, required: true}
+  - {name: BUS_DT, required: true}
+  - {name: STMT_BAL, description: Cents}
+  - {name: CURR_BAL, required: true, description: Cents}
+  - {name: REVOLV_BAL, description: Cents}
+  - {name: AVAIL_CREDIT, description: Cents}
+  - {name: DAYS_PAST_DUE}

@@ -1,0 +1,20 @@
+source: processor
+entity: merchant
+description: Merchant reference snapshot from the card processor
+owner: head_of_card_operations
+classification: internal
+format: hdt
+file_type: MERCHANT
+file_glob: "processor/merchant/business_date=*/processor_merchant_*.dat"
+file_name_regex: 'processor_merchant_(?P<business_date>\d{8})_(?P<seq>\d{4})\.dat'
+target_table: bronze.processor_merchant_raw
+quarantine_table: bronze.processor_merchant_raw_quarantine
+key_columns: [MERCH_ID]
+trailer: {record_count: true}
+columns:
+  - {name: MERCH_ID, required: true}
+  - {name: MERCH_NM, pan_guard: scan}
+  - {name: MCC}
+  - {name: CITY}
+  - {name: STATE_CD}
+  - {name: COUNTRY_CD}

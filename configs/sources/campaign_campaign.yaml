@@ -1,0 +1,25 @@
+source: campaign
+entity: campaign
+description: Campaigns and offers with Compliance approval ids (S10)
+owner: head_of_card_marketing
+classification: internal
+format: csv
+delimiter: ","
+file_glob: "campaign/campaign/business_date=*/campaign_campaign_*.csv"
+file_name_regex: 'campaign_campaign_(?P<business_date>\d{8})_(?P<seq>\d{4})\.csv'
+target_table: bronze.campaign_campaign_raw
+quarantine_table: bronze.campaign_campaign_raw_quarantine
+key_columns: [campaign_id]
+max_quarantine_pct: 0.0
+quarantine_floor: 0
+columns:
+  - {name: campaign_id, required: true}
+  - {name: campaign_name}
+  - {name: trigger_cd, required: true}
+  - {name: offer_cd, required: true}
+  - {name: offer_value}
+  - {name: est_cost_usd}
+  - {name: start_date, required: true}
+  - {name: end_date, required: true}
+  - {name: compliance_approval_id, required: true}
+  - {name: product_scope}

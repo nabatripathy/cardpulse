@@ -1,0 +1,8 @@
+# Default demo portfolio: 10,000 customers, 6 months of transactions, defects on.
+seed: 42
+business_date: 2027-03-15
+n_customers: 10000
+history_days: 180
+intraday_batches: 96
+defects:
+  enabled: true

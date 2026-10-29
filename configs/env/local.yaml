@@ -1,0 +1,15 @@
+# Local profile: runs on a laptop with no services. Iceberg tables on the local
+# filesystem, catalog in SQLite, lineage events to a JSONL file.
+env: local
+landing_root: .lakehouse/landing
+writer: pyiceberg
+catalog:
+  name: cardpulse
+  type: sql
+  properties:
+    uri: sqlite:///.lakehouse/catalog.db
+    warehouse: file://.lakehouse/warehouse
+lineage:
+  transport: file
+  path: .lakehouse/lineage/events.jsonl
+  namespace: cardpulse-local

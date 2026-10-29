@@ -1,0 +1,16 @@
+source: reference
+entity: mcc
+description: Merchant category code reference, maintained by data governance
+owner: data_governance
+classification: public
+format: csv
+delimiter: ","
+file_glob: "reference/mcc/business_date=*/reference_mcc_*.csv"
+file_name_regex: 'reference_mcc_(?P<business_date>\d{8})_(?P<seq>\d{4})\.csv'
+target_table: bronze.reference_mcc_raw
+quarantine_table: bronze.reference_mcc_raw_quarantine
+key_columns: [MCC]
+columns:
+  - {name: MCC, required: true}
+  - {name: MCC_DESC}
+  - {name: CATEGORY_GRP, required: true}

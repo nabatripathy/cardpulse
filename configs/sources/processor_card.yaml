@@ -1,0 +1,20 @@
+source: processor
+entity: card
+description: Card (plastic) master snapshot; card numbers arrive tokenized
+owner: head_of_card_operations
+format: hdt
+file_type: CARD
+file_glob: "processor/card/business_date=*/processor_card_*.dat"
+file_name_regex: 'processor_card_(?P<business_date>\d{8})_(?P<seq>\d{4})\.dat'
+target_table: bronze.processor_card_raw
+quarantine_table: bronze.processor_card_raw_quarantine
+key_columns: [PAN_TOKEN]
+trailer: {record_count: true}
+columns:
+  - {name: PAN_TOKEN, required: true, pan_guard: exact}
+  - {name: ACCT_NO, required: true}
+  - {name: CUST_ID, required: true}
+  - {name: ISSUE_DT}
+  - {name: ACTIVATION_DT, description: Blank until the card is activated}
+  - {name: EXPIRY_YM}
+  - {name: WALLET_FLG}

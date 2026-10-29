@@ -1,0 +1,22 @@
+# Marketing consent and do-not-solicit from the preference center (S05, S06, S07).
+source: prefcenter
+entity: consent
+description: Marketing consent, channel preferences and do-not-solicit flags
+owner: chief_privacy_officer
+classification: confidential
+format: csv
+delimiter: ","
+file_glob: "prefcenter/consent/business_date=*/prefcenter_consent_*.csv"
+file_name_regex: 'prefcenter_consent_(?P<business_date>\d{8})_(?P<seq>\d{4})\.csv'
+target_table: bronze.prefcenter_consent_raw
+quarantine_table: bronze.prefcenter_consent_raw_quarantine
+key_columns: [customer_id, channel_cd, purpose_cd]
+max_quarantine_pct: 0.0   # consent drives suppression: any bad record rejects the file
+quarantine_floor: 0
+columns:
+  - {name: customer_id, required: true}
+  - {name: channel_cd, required: true}
+  - {name: purpose_cd, required: true}
+  - {name: consent_status, required: true}
+  - {name: source_cd}
+  - {name: captured_ts, required: true}

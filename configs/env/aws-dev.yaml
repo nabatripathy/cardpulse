@@ -1,0 +1,16 @@
+# AWS dev profile (thin cloud slice, ADR-025). Glue Data Catalog is the Iceberg
+# catalog (ADR-017); Snowflake reads these tables through a catalog integration.
+# Not exercised in Increment 1: it needs the Terraform landing zone (E01).
+env: aws-dev
+landing_root: /mnt/landing          # S3 landing synced to EMR or the runner; S3-native reads come with E04 on EMR
+writer: pyiceberg                    # switch to "spark" on EMR Serverless
+catalog:
+  name: cardpulse
+  type: glue
+  properties:
+    warehouse: s3://cardpulse-dev-lakehouse/
+    glue.region: us-east-1
+lineage:
+  transport: http
+  url: http://marquez.cardpulse-dev.internal:5000
+  namespace: cardpulse-dev

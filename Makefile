@@ -1,0 +1,50 @@
+.DEFAULT_GOAL := help
+PY ?= python3
+VENV ?= .venv
+BIN := $(VENV)/bin
+PROFILE ?= default   # synthetic profile: small | default | scale
+
+help:  ## List targets
+	@grep -E '^[a-zA-Z_-]+:.*## ' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  %-14s %s\n", $$1, $$2}'
+
+setup:  ## Create a virtualenv and install CardPulse with dev tools
+	$(PY) -m venv $(VENV)
+	$(BIN)/pip install -U pip
+	$(BIN)/pip install -e ".[dev]"
+
+synth:  ## Generate the synthetic portfolio into .lakehouse/landing (PROFILE=small|default|scale)
+	$(BIN)/cardpulse-synth --config synthetic-data/config/$(strip $(PROFILE)).yaml --env local --clean
+
+ingest:  ## Load every landed file into Bronze (local profile)
+	$(BIN)/cardpulse-ingest run --env local --all
+
+report:  ## Show Bronze row counts, file outcomes, quarantine and watermarks
+	$(BIN)/cardpulse-ingest report --env local
+
+demo: reset synth ingest report  ## Full local demo: reset, generate, ingest, report
+
+reset:  ## Delete the local lakehouse (landing, tables, catalog, lineage)
+	rm -rf .lakehouse
+
+test:  ## Run the test suite
+	$(BIN)/pytest
+
+lint:  ## Lint, format check and card-number scan
+	$(BIN)/ruff check .
+	$(BIN)/ruff format --check .
+	$(BIN)/python tools/scan_repo_for_pans.py
+
+fmt:  ## Auto-format
+	$(BIN)/ruff format .
+	$(BIN)/ruff check . --fix
+
+up:  ## Start the docker profile services (MinIO, Iceberg REST, Marquez)
+	docker compose up -d minio minio-init iceberg-rest marquez-db marquez marquez-web
+
+demo-docker:  ## Run generate + ingest + report inside docker against MinIO and Marquez
+	docker compose --profile run run --rm cardpulse
+
+down:  ## Stop the docker profile
+	docker compose down
+
+.PHONY: help setup synth ingest report demo reset test lint fmt up demo-docker down

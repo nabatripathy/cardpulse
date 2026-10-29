@@ -1,0 +1,36 @@
+# Posted card transactions from the card processor (highest-volume MVP feed).
+# Daily files for history; 15-minute micro-batch files on the business date (ADR-006).
+source: processor
+entity: posted_txn
+description: Posted card transactions, as received from the card processor
+owner: head_of_card_operations
+classification: confidential
+format: hdt
+delimiter: "|"
+file_type: POSTED_TXN
+file_glob: "processor/posted_txn/business_date=*/processor_posted_txn_*.dat"
+file_name_regex: 'processor_posted_txn_(?P<business_date>\d{8})_(?P<seq>\d{4})\.dat'
+target_table: bronze.processor_posted_txn_raw
+quarantine_table: bronze.processor_posted_txn_raw_quarantine
+schema_version: 1
+key_columns: [TXN_REF_NO]
+trailer: {record_count: true, amount_total_field: TXN_AMT}
+max_quarantine_pct: 1.0
+quarantine_floor: 10
+watermark: sequence
+columns:
+  - {name: TXN_REF_NO, required: true, description: Processor reference number; unique per transaction}
+  - {name: PAN_TOKEN, required: true, pan_guard: exact, description: Format-preserving card token; never a clear PAN}
+  - {name: ACCT_NO, required: true}
+  - {name: POST_DT, required: true, description: YYYYMMDD}
+  - {name: TXN_DT, required: true, description: YYYYMMDD, merchant local date}
+  - {name: TXN_TM, description: HHMMSS, merchant local time}
+  - {name: TXN_AMT, required: true, description: Signed amount in cents; credits negative}
+  - {name: CURR_CD}
+  - {name: MERCH_ID}
+  - {name: MERCH_NM, pan_guard: scan, description: Free text; scanned for card numbers}
+  - {name: MCC}
+  - {name: TXN_TYPE, required: true, description: Processor code 05 purchase, 06 refund, 07 cash, 21 payment}
+  - {name: ENTRY_MODE}
+  - {name: ORIG_TXN_REF_NO, description: Original reference for reversals}
+  - {name: TZ_CD, description: Merchant time zone code}

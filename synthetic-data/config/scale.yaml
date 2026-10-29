@@ -1,0 +1,10 @@
+# Test-environment scale (Phase 3): 10M accounts needs a larger machine or
+# chunked generation on EMR. This 1M-customer profile is the largest sensible
+# single-machine run (~100M transactions over 180 days; tens of GB of files).
+seed: 2027
+business_date: 2027-03-15
+n_customers: 1000000
+history_days: 180
+intraday_batches: 96
+defects:
+  enabled: false

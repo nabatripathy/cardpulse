@@ -1,0 +1,40 @@
+# Data product contract (Phase 4 design). Built in Increment 4 (Gold and decisioning);
+# kept here from the start so CI can validate contracts as they are added (PT-06).
+contract: offer_eligibility
+version: 1.0.0
+status: draft                # draft | certified | deprecated
+domain: marketing
+owner:
+  business: head_of_card_marketing
+  technical: principal_data_architect
+  compliance_signoff: required
+description: >
+  One row per customer and active offer stating whether the customer may
+  receive the offer now, and if not, why (reason codes S01-S12).
+grain: [customer_id, offer_code]
+location:
+  snowflake: CARDPULSE_PROD.GOLD.OFFER_ELIGIBILITY
+  online: dynamodb://cardpulse-eligibility   # pk=customer_id, sk=offer_code
+schema:
+  - {name: customer_id,        type: varchar(20),  nullable: false}
+  - {name: offer_code,         type: varchar(20),  nullable: false}
+  - {name: is_eligible,        type: boolean,      nullable: false}
+  - {name: suppression_codes,  type: array,        nullable: true, description: "ordered reason codes, e.g. [S01, S05]"}
+  - {name: last_contact_ts,    type: timestamp_tz, nullable: true}
+  - {name: contacts_30d,       type: number(3),    nullable: false}
+  - {name: rule_set_version,   type: varchar(12),  nullable: false}
+  - {name: evaluated_at,       type: timestamp_tz, nullable: false}
+classification: confidential
+sla:
+  freshness: 1h
+  availability: 99.9%
+  online_latency_p95_ms: 10
+quality:
+  - {check: unique,      columns: [customer_id, offer_code]}
+  - {check: not_null,    columns: [customer_id, offer_code, is_eligible, rule_set_version]}
+  - {check: expression,  rule: "is_eligible = (suppression_codes is null)"}
+  - {check: referential, column: customer_id, references: GOLD.DIM_CUSTOMER}
+  - {check: freshness,   column: evaluated_at, max_age: 2h}
+lineage: openlineage://cardpulse/gold/offer_eligibility
+consumers: [eligibility_service, marketing_analytics]
+change_policy: semver; breaking changes need a new major version and 30 days' notice

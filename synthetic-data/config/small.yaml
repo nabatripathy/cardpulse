@@ -1,0 +1,9 @@
+# Small portfolio for tests and CI: 1,000 customers, 60 days, 24 intraday files.
+seed: 7
+business_date: 2027-03-15
+n_customers: 1000
+history_days: 60
+intraday_batches: 24
+defects:
+  enabled: true
+  bad_trailer_batch: 5

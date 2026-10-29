@@ -1,0 +1,17 @@
+source: processor
+entity: cust_acct_role
+description: Customer-to-account roles (primary holder, authorized user)
+owner: head_of_card_operations
+format: hdt
+file_type: CUST_ACCT_ROLE
+file_glob: "processor/cust_acct_role/business_date=*/processor_cust_acct_role_*.dat"
+file_name_regex: 'processor_cust_acct_role_(?P<business_date>\d{8})_(?P<seq>\d{4})\.dat'
+target_table: bronze.processor_cust_acct_role_raw
+quarantine_table: bronze.processor_cust_acct_role_raw_quarantine
+key_columns: [CUST_ID, ACCT_NO, ROLE_CD]
+trailer: {record_count: true}
+columns:
+  - {name: CUST_ID, required: true}
+  - {name: ACCT_NO, required: true}
+  - {name: ROLE_CD, required: true, description: P primary, A authorized user}
+  - {name: EFF_DT}

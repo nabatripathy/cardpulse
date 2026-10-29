@@ -1,0 +1,43 @@
+name: ci
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install
+        run: pip install -e ".[dev]"
+      - name: Lint and format check
+        run: |
+          ruff check .
+          ruff format --check .
+      - name: Block card numbers in the repository (PCI guard)
+        run: python tools/scan_repo_for_pans.py
+      - name: Validate source specs
+        run: python -c "from cardpulse_frameworks.ingestion.spec import load_specs; print(len(load_specs('configs/sources')), 'specs valid')"
+      - name: Unit and integration tests
+        run: pytest
+      - name: End-to-end smoke run (small portfolio, local profile)
+        run: |
+          cardpulse-synth --config synthetic-data/config/small.yaml --env local --clean
+          cardpulse-ingest run --env local --all
+          cardpulse-ingest report --env local
+
+  compose:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate docker-compose.yml
+        run: docker compose config --quiet

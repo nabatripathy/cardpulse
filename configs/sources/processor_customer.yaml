@@ -1,0 +1,23 @@
+source: processor
+entity: customer
+description: Customer master snapshot from the card processor
+owner: head_of_card_operations
+classification: restricted
+format: hdt
+file_type: CUSTOMER
+file_glob: "processor/customer/business_date=*/processor_customer_*.dat"
+file_name_regex: 'processor_customer_(?P<business_date>\d{8})_(?P<seq>\d{4})\.dat'
+target_table: bronze.processor_customer_raw
+quarantine_table: bronze.processor_customer_raw_quarantine
+key_columns: [CUST_ID]
+trailer: {record_count: true}
+columns:
+  - {name: CUST_ID, required: true}
+  - {name: FIRST_NM, pii: true}
+  - {name: LAST_NM, pii: true}
+  - {name: BIRTH_YR, pii: true}
+  - {name: STATE_CD}
+  - {name: ZIP3}
+  - {name: CUST_SINCE_DT}
+  - {name: SEGMENT_CD}
+  - {name: DECEASED_FLG}

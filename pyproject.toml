@@ -1,0 +1,44 @@
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "cardpulse"
+version = "0.1.0"
+description = "Project CardPulse: real-time card customer intelligence and next-best-offer platform (portfolio build, synthetic data only)"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "pyiceberg[sql-sqlite,pyarrow]>=0.9",
+    "pyarrow>=16",
+    "numpy>=1.26",
+    "pydantic>=2.6",
+    "pyyaml>=6",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8", "ruff>=0.5"]
+spark = ["pyspark==3.5.*"]
+aws = ["pyiceberg[glue,s3fs]>=0.9"]
+
+[project.scripts]
+cardpulse-synth = "cardpulse_synth.cli:main"
+cardpulse-ingest = "cardpulse_frameworks.ingestion.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["frameworks", "synthetic-data"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+
+[tool.ruff]
+line-length = 120
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP", "S"]
+ignore = ["S101", "S311", "S324"]  # asserts in tests; non-crypto RNG for synthetic data; md5 not used for security
+
+[tool.ruff.lint.isort]
+known-first-party = ["cardpulse_frameworks", "cardpulse_synth", "conftest"]
