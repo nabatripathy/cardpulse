@@ -1,49 +1,38 @@
 # CardPulse local platform (docker profile, configs/env/docker.yaml).
 #
-#   make up        # start MinIO, the Iceberg REST catalog and Marquez
+#   make up        # start SeaweedFS (S3), the Iceberg REST catalog and Marquez
 #   make demo-docker
 #
 # CI (.github/workflows/docker.yml) starts this whole stack on every pull request, runs
-# the small portfolio through Bronze and Silver, and verifies tables in MinIO and
-# lineage in Marquez. CARDPULSE_PROFILE picks the synthetic portfolio (default: default).
+# the small portfolio through Bronze and Silver, and verifies tables in the S3 store
+# (SeaweedFS) and lineage in Marquez. CARDPULSE_PROFILE picks the synthetic portfolio (default: default).
 name: cardpulse
 
-x-minio-creds: &minio-creds
+x-s3-creds: &s3-creds
   AWS_ACCESS_KEY_ID: cardpulse
   AWS_SECRET_ACCESS_KEY: cardpulse-local-only
   AWS_REGION: us-east-1
 
 services:
-  minio:
-    image: minio/minio:RELEASE.2025-04-22T22-12-26Z
-    command: server /data --console-address ":9001"
-    environment:
-      MINIO_ROOT_USER: cardpulse
-      MINIO_ROOT_PASSWORD: cardpulse-local-only
-    ports: ["9000:9000", "9001:9001"]
-    volumes: [minio-data:/data]
-    healthcheck:
-      test: ["CMD", "mc", "ready", "local"]
-      interval: 5s
-      retries: 20
-
-  minio-init:
-    image: minio/mc:RELEASE.2025-04-16T18-13-26Z
-    depends_on:
-      minio: {condition: service_healthy}
-    entrypoint: >
-      /bin/sh -c "mc alias set local http://minio:9000 cardpulse cardpulse-local-only &&
-                  mc mb --ignore-existing local/cardpulse-local-lakehouse"
+  # S3-compatible object store. (MinIO's images are no longer served by Docker Hub; see IMP-017.)
+  seaweedfs:
+    image: chrislusf/seaweedfs:3.80
+    command: >
+      server -dir=/data -ip=seaweedfs -ip.bind=0.0.0.0 -master.volumeSizeLimitMB=512
+      -s3 -s3.port=9000 -s3.config=/etc/seaweedfs/s3.json
+    ports: ["9000:9000", "9333:9333"]
+    volumes:
+      - seaweedfs-data:/data
+      - ./docker/seaweedfs/s3.json:/etc/seaweedfs/s3.json:ro
 
   iceberg-rest:
     image: apache/iceberg-rest-fixture:1.9.1
-    depends_on:
-      minio-init: {condition: service_completed_successfully}
+    depends_on: [seaweedfs]
     environment:
-      <<: *minio-creds
+      <<: *s3-creds
       CATALOG_WAREHOUSE: s3://cardpulse-local-lakehouse/
       CATALOG_IO__IMPL: org.apache.iceberg.aws.s3.S3FileIO
-      CATALOG_S3_ENDPOINT: http://minio:9000
+      CATALOG_S3_ENDPOINT: http://seaweedfs:9000
       CATALOG_S3_PATH__STYLE__ACCESS: "true"
     ports: ["8181:8181"]
 
@@ -83,13 +72,15 @@ services:
   cardpulse:
     build: {context: ., dockerfile: docker/Dockerfile}
     profiles: [run]
-    depends_on: [iceberg-rest, marquez]
+    depends_on: [seaweedfs, iceberg-rest, marquez]
     environment:
-      <<: *minio-creds
+      <<: *s3-creds
     volumes:
       - landing:/data/landing
     command: >
-      sh -c "python tools/wait_for.py http://iceberg-rest:8181/v1/config http://marquez:5000/api/v1/namespaces &&
+      sh -c "python tools/wait_for.py http://seaweedfs:9333/cluster/status http://iceberg-rest:8181/v1/config
+               http://marquez:5000/api/v1/namespaces &&
+             python tools/ensure_bucket.py --env docker &&
              cardpulse-synth --config synthetic-data/config/${CARDPULSE_PROFILE:-default}.yaml --env docker --clean &&
              cardpulse-ingest run --env docker --all &&
              cardpulse-silver run --env docker --fail-on-reject &&
@@ -98,6 +89,6 @@ services:
              python tools/verify_docker_profile.py --env docker"
 
 volumes:
-  minio-data:
+  seaweedfs-data:
   marquez-db:
   landing:

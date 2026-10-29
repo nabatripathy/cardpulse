@@ -50,7 +50,7 @@ jobs:
           echo "Published $IMAGE:$short and $IMAGE:latest" >> "$GITHUB_STEP_SUMMARY"
 
   docker-profile:
-    name: docker-profile (MinIO, Iceberg REST, Marquez end to end)
+    name: docker-profile (S3 store, Iceberg REST, Marquez end to end)
     runs-on: ubuntu-latest
     timeout-minutes: 25
     env:
@@ -77,11 +77,11 @@ jobs:
       - name: Build the runner image
         run: docker compose --profile run build cardpulse
 
-      - name: Start MinIO, Iceberg REST catalog and Marquez
-        run: docker compose up -d minio minio-init iceberg-rest marquez-db marquez marquez-web
+      - name: Start SeaweedFS (S3), Iceberg REST catalog and Marquez
+        run: docker compose up -d seaweedfs iceberg-rest marquez-db marquez marquez-web
 
-      - name: Wait for the catalog and Marquez
-        run: python3 tools/wait_for.py --timeout 240 http://localhost:8181/v1/config http://localhost:5000/api/v1/namespaces
+      - name: Wait for the object store, catalog and Marquez
+        run: python3 tools/wait_for.py --timeout 240 http://localhost:9333/cluster/status http://localhost:8181/v1/config http://localhost:5000/api/v1/namespaces
 
       - name: Run generate, Bronze, Silver and verification in the runner
         run: |
@@ -112,7 +112,7 @@ jobs:
             msg=$(grep -v '^{' "$f" | tail -c 3000 | sed ':a;N;$!ba;s/%/%25/g;s/\r//g;s/\n/%0A/g')
             echo "::error title=output: $f::$msg"
           done
-          for svc in minio minio-init iceberg-rest marquez-db marquez; do
+          for svc in seaweedfs iceberg-rest marquez-db marquez; do
             docker compose --profile run logs --no-color --tail 25 "$svc" > "svc.log" 2>&1 || true
             msg=$(tail -c 2500 svc.log | sed ':a;N;$!ba;s/%/%25/g;s/\r//g;s/\n/%0A/g')
             echo "::error title=logs: $svc::$msg"

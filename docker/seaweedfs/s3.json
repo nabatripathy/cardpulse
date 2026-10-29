@@ -1,0 +1,9 @@
+{
+  "identities": [
+    {
+      "name": "cardpulse",
+      "credentials": [{"accessKey": "cardpulse", "secretKey": "cardpulse-local-only"}],
+      "actions": ["Admin", "Read", "Write", "List", "Tagging"]
+    }
+  ]
+}

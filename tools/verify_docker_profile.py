@@ -4,7 +4,7 @@ Run after `cardpulse-synth`, `cardpulse-ingest` and `cardpulse-silver` with
 `--env docker`. It fails (exit 1) unless:
 
 * every Bronze and Silver table exists in the Iceberg REST catalog and has rows;
-* the tables live in MinIO (``s3://``), not on a local disk;
+* the tables live in the S3 object store (``s3://``), not on a local disk;
 * Marquez received lineage for every Bronze ingest job and every Silver transform job.
 
     python tools/verify_docker_profile.py --env docker
@@ -47,7 +47,7 @@ def main(argv: list[str] | None = None) -> int:
         if n == 0:
             failures.append(f"{table}: no rows")
         if not location.startswith("s3://"):
-            failures.append(f"{table}: stored at {location}, expected s3:// (MinIO)")
+            failures.append(f"{table}: stored at {location}, expected s3:// (object store)")
 
     jobs: set[str] = set()
     if env.lineage.transport == "http" and env.lineage.url:
@@ -69,7 +69,7 @@ def main(argv: list[str] | None = None) -> int:
     if failures:
         print("\nFAILED\n" + "\n".join(f"- {f}" for f in failures))
         return 1
-    print("\nPASSED: tables in MinIO through the Iceberg REST catalog, lineage in Marquez")
+    print("\nPASSED: tables in the S3 object store through the Iceberg REST catalog, lineage in Marquez")
     return 0
 
 

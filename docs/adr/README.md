@@ -42,3 +42,11 @@ index records the decisions that shape this repository.
 | IMP-014 | DQ gate: critical row failures are quarantined; if any critical rule exceeds its threshold the whole unit is rejected and nothing is written; `--retry-rejected` re-evaluates after a fix | Bad data never reaches Silver silently, and a systemic problem stops the line instead of being partially loaded |
 | IMP-015 | Silver follows the Bronze watermark: batches above it wait | Downstream facts never skip a missing micro-batch |
 | IMP-016 | The generator writes a prior-day master snapshot from a separate random stream | Silver history is exercised in every demo and test, while transaction files stay identical to Increment 1 |
+
+## Decisions made during container packaging
+
+| ID | Decision | Rationale |
+|---|---|---|
+| IMP-017 | SeaweedFS replaces MinIO as the S3-compatible store in the docker profile; the bucket is created by `tools/ensure_bucket.py` in the runner | The first CI run found that Docker Hub no longer serves `minio/minio` or `minio/mc` ("repository does not exist"). SeaweedFS is maintained, S3-compatible and widely used with Iceberg. AWS S3 remains the cloud target (ADR-008), so this changes only the local stand-in. |
+| IMP-018 | Docker work is built and verified in GitHub Actions, not in the build workspace | The build workspace has no Docker daemon; CI runners do, so every pull request proves the image and the full docker profile |
+| IMP-019 | The image is published to GitHub Container Registry on merge to `main`, tagged with the commit and `latest` | Versioned, pullable artifact next to the code; AWS ECR takes over with the landing zone (Increment 5) |

@@ -1,4 +1,4 @@
-# Docker profile (docker-compose.yml): MinIO as S3, Iceberg REST catalog, Marquez
+# Docker profile (docker-compose.yml): SeaweedFS as S3, Iceberg REST catalog, Marquez
 # for lineage. Landing files are on a shared volume mounted at /data/landing.
 env: docker
 landing_root: /data/landing
@@ -9,7 +9,7 @@ catalog:
   properties:
     uri: http://iceberg-rest:8181
     warehouse: s3://cardpulse-local-lakehouse/
-    s3.endpoint: http://minio:9000
+    s3.endpoint: http://seaweedfs:9000
     s3.access-key-id: cardpulse
     s3.secret-access-key: cardpulse-local-only
     s3.path-style-access: "true"
