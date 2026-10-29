@@ -19,7 +19,7 @@ jobs:
       contents: read
       packages: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Build the image
         run: docker build -f docker/Dockerfile -t cardpulse:ci .
@@ -56,13 +56,23 @@ jobs:
     env:
       CARDPULSE_PROFILE: small
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Validate docker-compose.yml
         run: docker compose config --quiet
 
       - name: Pull service images
-        run: docker compose pull --quiet minio minio-init iceberg-rest marquez-db marquez marquez-web
+        run: |
+          failed=0
+          for img in $(docker compose config --images | grep -v cardpulse); do
+            if docker pull --quiet "$img" >/dev/null 2>pull.err; then
+              echo "pulled $img"
+            else
+              echo "::error title=image pull failed::$img: $(tr '\n' ' ' < pull.err | cut -c1-300)"
+              failed=1
+            fi
+          done
+          exit $failed
 
       - name: Build the runner image
         run: docker compose --profile run build cardpulse
@@ -74,13 +84,16 @@ jobs:
         run: python3 tools/wait_for.py --timeout 240 http://localhost:8181/v1/config http://localhost:5000/api/v1/namespaces
 
       - name: Run generate, Bronze, Silver and verification in the runner
-        run: docker compose --profile run run --rm cardpulse
+        run: |
+          set -o pipefail
+          docker compose --profile run run --rm cardpulse 2>&1 | tee runner.log
 
       - name: Rerun is a no-op (idempotent against the docker services)
         run: |
+          set -o pipefail
           docker compose --profile run run --rm cardpulse sh -c "
             cardpulse-ingest run --env docker --all &&
-            cardpulse-silver run --env docker --fail-on-reject" | tee rerun.txt
+            cardpulse-silver run --env docker --fail-on-reject" 2>&1 | tee rerun.txt
           if grep -E '^\| [a-z_.]+ +\| +[1-9]' rerun.txt | grep -v -E 'Skipped|Units'; then
             echo "::error::the rerun loaded or applied something"; exit 1
           fi
@@ -92,7 +105,18 @@ jobs:
 
       - name: Service logs
         if: failure()
-        run: docker compose logs --no-color --tail 200
+        run: |
+          docker compose ps -a
+          for f in runner.log rerun.txt; do
+            [ -f "$f" ] || continue
+            msg=$(grep -v '^{' "$f" | tail -c 3000 | sed ':a;N;$!ba;s/%/%25/g;s/\r//g;s/\n/%0A/g')
+            echo "::error title=output: $f::$msg"
+          done
+          for svc in minio minio-init iceberg-rest marquez-db marquez; do
+            docker compose --profile run logs --no-color --tail 25 "$svc" > "svc.log" 2>&1 || true
+            msg=$(tail -c 2500 svc.log | sed ':a;N;$!ba;s/%/%25/g;s/\r//g;s/\n/%0A/g')
+            echo "::error title=logs: $svc::$msg"
+          done
 
       - name: Stop
         if: always()
