@@ -13,3 +13,7 @@ lineage:
   transport: file
   path: .lakehouse/lineage/events.jsonl
   namespace: cardpulse-local
+gold:
+  target: local
+  warehouse_path: .lakehouse/gold/warehouse.duckdb
+  lineage_namespace: duckdb://gold

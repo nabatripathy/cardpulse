@@ -1,0 +1,35 @@
+# CardPulse Gold layer (Kimball star schema + data products).
+# Local and docker profiles run on DuckDB (the stand-in for Snowflake); the Snowflake
+# target in profiles.yml reads the same Silver tables through Snowflake Iceberg tables.
+name: cardpulse
+version: "1.0.0"
+config-version: 2
+profile: cardpulse
+
+model-paths: ["models"]
+macro-paths: ["macros"]
+test-paths: ["tests"]
+clean-targets: ["target"]
+
+vars:
+  # Calendar range of dim_date.
+  date_spine_start: "2024-01-01"
+  date_spine_end: "2028-12-31"
+  # Effective-from date given to the first version of every dimension member, so facts
+  # older than the first snapshot still find a dimension row (Kimball "beginning of time").
+  scd_beginning_of_time: "1900-01-01"
+
+models:
+  cardpulse:
+    staging:
+      +schema: staging
+      +materialized: view
+    marts:
+      +schema: gold
+      +materialized: table
+      products:
+        +tags: ["data_product"]
+
+tests:
+  cardpulse:
+    +severity: error

@@ -81,17 +81,21 @@ services:
       <<: *s3-creds
     volumes:
       - landing:/data/landing
+      - gold:/data/gold
     command: >
       sh -c "python tools/wait_for.py http://seaweedfs:9333/cluster/status http://iceberg-rest:8181/v1/config http://marquez:5000/api/v1/namespaces &&
              python tools/ensure_bucket.py --env docker &&
              cardpulse-synth --config synthetic-data/config/${CARDPULSE_PROFILE:-default}.yaml --env docker --clean &&
              cardpulse-ingest run --env docker --all &&
              cardpulse-silver run --env docker --fail-on-reject &&
+             cardpulse-gold run --env docker &&
              cardpulse-ingest report --env docker &&
              cardpulse-silver report --env docker &&
+             cardpulse-gold report --env docker &&
              python tools/verify_docker_profile.py --env docker"
 
 volumes:
   seaweedfs-data:
   marquez-db:
   landing:
+  gold:

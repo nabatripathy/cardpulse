@@ -1,0 +1,141 @@
+# Data product contract. The dbt model enforces these columns, in this order, with these types;
+# tests/test_gold.py fails if the two drift apart.
+contract: customer_360
+version: 1.0.0
+status: certified
+domain: customer
+owner:
+  business: head_of_card_marketing
+  technical: principal_data_architect
+description: One consented view of each current customer across accounts, spend and marketing preferences.
+grain:
+- customer_id
+location:
+  dbt_model: customer_360
+  local: 'warehouse.duckdb: gold.customer_360'
+  snowflake: CARDPULSE_PROD.GOLD.CUSTOMER_360
+schema:
+- name: customer_id
+  type: varchar
+  nullable: false
+  description: Customer business key
+- name: customer_sk
+  type: varchar
+  nullable: false
+  description: Current customer dimension version
+- name: first_name
+  type: varchar
+  nullable: true
+  description: First name, for offer personalization (PII)
+- name: state_cd
+  type: varchar
+  nullable: true
+  description: US state
+- name: zip3
+  type: varchar
+  nullable: true
+  description: First three digits of ZIP
+- name: segment_cd
+  type: varchar
+  nullable: true
+  description: MASS, AFFLUENT, PREMIER or STUDENT
+- name: customer_since_date
+  type: date
+  nullable: true
+  description: Date of the customer's first account
+- name: tenure_months
+  type: integer
+  nullable: true
+  description: Months from customer_since_date to as_of_date
+- name: age_years
+  type: integer
+  nullable: true
+  description: Age in years as of as_of_date (from birth year)
+- name: is_deceased
+  type: boolean
+  nullable: false
+  description: Deceased flag (suppression rule S04)
+- name: account_count
+  type: integer
+  nullable: false
+  description: Accounts where the customer is primary holder
+- name: open_account_count
+  type: integer
+  nullable: false
+  description: Open accounts where the customer is primary holder
+- name: primary_product_cd
+  type: varchar
+  nullable: true
+  description: Product of the customer's highest-limit account
+- name: total_credit_limit
+  type: decimal(18,2)
+  nullable: false
+  description: Total credit limit across open accounts, USD
+- name: total_current_balance
+  type: decimal(18,2)
+  nullable: false
+  description: Total current balance, USD
+- name: total_revolving_balance
+  type: decimal(18,2)
+  nullable: false
+  description: Total revolving balance, USD
+- name: utilization_ratio
+  type: double
+  nullable: true
+  description: total_current_balance / total_credit_limit
+- name: max_days_past_due
+  type: integer
+  nullable: false
+  description: Worst days past due across accounts (suppression rule S02)
+- name: spend_30d
+  type: decimal(18,2)
+  nullable: false
+  description: Spend in the last 30 days across accounts, USD
+- name: avg_monthly_spend_6m
+  type: decimal(18,2)
+  nullable: false
+  description: Average monthly spend over 6 months across accounts, USD
+- name: last_spend_date
+  type: date
+  nullable: true
+  description: Most recent spend across accounts
+- name: has_fraud_flag
+  type: boolean
+  nullable: false
+  description: Any account fraud-flagged (suppression rule S03)
+- name: has_acquisition_bonus
+  type: boolean
+  nullable: false
+  description: Any account earning a sign-up bonus (suppression rule S12)
+- name: email_opt_in
+  type: boolean
+  nullable: false
+  description: Marketing email consent (rules S05, S06)
+- name: push_opt_in
+  type: boolean
+  nullable: false
+  description: Marketing push consent (rules S05, S06)
+- name: sms_opt_in
+  type: boolean
+  nullable: false
+  description: Marketing SMS consent
+- name: mail_opt_in
+  type: boolean
+  nullable: false
+  description: Marketing direct mail consent
+- name: is_do_not_solicit
+  type: boolean
+  nullable: false
+  description: On the internal do-not-solicit list (rule S07)
+- name: as_of_date
+  type: date
+  nullable: false
+  description: Snapshot date the row reflects
+classification: restricted
+sla:
+  freshness: ready by 06:00 CT daily
+quality:
+- enforced dbt contract (names, order, types)
+- dbt tests in dbt/models/marts/products/_products.yml
+lineage: openlineage://cardpulse/gold.customer_360
+change_policy: semver; adding nullable columns is a minor version; anything else is major with 30 days' notice

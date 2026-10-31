@@ -1,0 +1,147 @@
+# Data product contract. The dbt model enforces these columns, in this order, with these types;
+# tests/test_gold.py fails if the two drift apart.
+contract: card_account_snapshot
+version: 1.0.0
+status: certified
+domain: card
+owner:
+  business: head_of_card_operations
+  technical: principal_data_architect
+description: 'Daily state of every card account: balances, limits, delinquency, spend and card activation. Inputs
+  to triggers T01 and T02.'
+grain:
+- account_id
+- snapshot_date
+location:
+  dbt_model: fct_account_daily_snapshot
+  local: 'warehouse.duckdb: gold.fct_account_daily_snapshot'
+  snowflake: CARDPULSE_PROD.GOLD.FCT_ACCOUNT_DAILY_SNAPSHOT
+schema:
+- name: date_key
+  type: integer
+  nullable: false
+  description: Snapshot date as YYYYMMDD; joins dim_date
+- name: snapshot_date
+  type: date
+  nullable: false
+  description: Business date of the balances
+- name: account_sk
+  type: varchar
+  nullable: false
+  description: Account dimension version in force on the snapshot date
+- name: customer_sk
+  type: varchar
+  nullable: false
+  description: Primary holder's customer dimension version on the snapshot date
+- name: account_id
+  type: varchar
+  nullable: false
+  description: Card account business key
+- name: customer_id
+  type: varchar
+  nullable: false
+  description: Primary holder business key
+- name: product_cd
+  type: varchar
+  nullable: false
+  description: Card product
+- name: status_cd
+  type: varchar
+  nullable: false
+  description: OPEN, CLOSED, CHARGED_OFF or BLOCKED
+- name: open_date
+  type: date
+  nullable: false
+  description: Account open date
+- name: months_on_book
+  type: integer
+  nullable: false
+  description: Whole months from open date to snapshot date
+- name: credit_limit
+  type: decimal(18,2)
+  nullable: true
+  description: Credit limit in USD
+- name: statement_balance
+  type: decimal(18,2)
+  nullable: true
+  description: Last statement balance in USD
+- name: current_balance
+  type: decimal(18,2)
+  nullable: false
+  description: Current balance in USD (prior-day close)
+- name: revolving_balance
+  type: decimal(18,2)
+  nullable: true
+  description: Balance carried at interest, USD
+- name: available_credit
+  type: decimal(18,2)
+  nullable: true
+  description: Available credit, USD
+- name: utilization_ratio
+  type: double
+  nullable: true
+  description: current_balance / credit_limit; null when no limit
+- name: days_past_due
+  type: integer
+  nullable: true
+  description: Days past due
+- name: is_delinquent
+  type: boolean
+  nullable: false
+  description: days_past_due > 0 (suppression rule S02)
+- name: spend_30d
+  type: decimal(18,2)
+  nullable: false
+  description: Purchases and cash in the 30 days ending on the snapshot date, USD
+- name: txn_count_30d
+  type: integer
+  nullable: false
+  description: Count of purchases and cash in the last 30 days
+- name: avg_monthly_spend_6m
+  type: decimal(18,2)
+  nullable: false
+  description: Average monthly spend over the last 6 months, or the shorter history available, USD
+- name: last_spend_date
+  type: date
+  nullable: true
+  description: Most recent purchase or cash transaction date
+- name: days_since_last_spend
+  type: integer
+  nullable: true
+  description: Days from last spend to snapshot date
+- name: lifetime_purchase_count
+  type: integer
+  nullable: false
+  description: Purchases on record up to the snapshot date (trigger T01)
+- name: first_purchase_date
+  type: date
+  nullable: true
+  description: First purchase on record
+- name: first_card_issue_date
+  type: date
+  nullable: true
+  description: Issue date of the account's first card
+- name: days_since_card_issue
+  type: integer
+  nullable: true
+  description: Days from first card issue to snapshot date (trigger T01 window)
+- name: is_card_activated
+  type: boolean
+  nullable: false
+  description: Any card on the account activated by the snapshot date
+- name: is_fraud_flagged
+  type: boolean
+  nullable: false
+  description: Open fraud or dispute flag (suppression rule S03)
+- name: has_acquisition_bonus
+  type: boolean
+  nullable: false
+  description: Earning a new-account sign-up bonus (suppression rule S12)
+classification: confidential
+sla:
+  freshness: ready by 06:00 CT daily
+quality:
+- enforced dbt contract (names, order, types)
+- dbt tests in dbt/models/marts/products/_products.yml
+lineage: openlineage://cardpulse/gold.fct_account_daily_snapshot
+change_policy: semver; adding nullable columns is a minor version; anything else is major with 30 days' notice

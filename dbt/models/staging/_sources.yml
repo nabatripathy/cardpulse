@@ -1,0 +1,19 @@
+version: 2
+
+# Silver is staged into the Gold warehouse as schema `silver` by `cardpulse-gold run`
+# (one consistent Iceberg snapshot per table). On Snowflake the same names resolve to
+# Snowflake Iceberg tables over the Glue catalog (ADR-008, ADR-017).
+sources:
+  - name: silver
+    schema: silver
+    description: Conformed Silver entities (Iceberg), built by cardpulse-silver
+    tables:
+      - name: customer
+      - name: card_account
+      - name: customer_account_role
+      - name: card
+      - name: mcc_reference
+      - name: marketing_consent
+      - name: campaign
+      - name: account_daily_balance
+      - name: posted_transaction
