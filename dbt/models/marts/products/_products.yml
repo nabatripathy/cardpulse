@@ -1,0 +1,381 @@
+version: 2
+models:
+- name: fct_account_daily_snapshot
+  description: Card Account Snapshot data product (contracts/card_account_snapshot.yaml)
+  config:
+    contract:
+      enforced: true
+  columns:
+  - name: date_key
+    data_type: integer
+    description: Snapshot date as YYYYMMDD; joins dim_date
+    data_tests:
+    - not_null
+    - relationships:
+        arguments:
+          to: ref('dim_date')
+          field: date_key
+    constraints:
+    - type: not_null
+  - name: snapshot_date
+    data_type: date
+    description: Business date of the balances
+    data_tests:
+    - not_null
+    constraints:
+    - type: not_null
+  - name: account_sk
+    data_type: varchar
+    description: Account dimension version in force on the snapshot date
+    data_tests:
+    - not_null
+    - relationships:
+        arguments:
+          to: ref('dim_account')
+          field: account_sk
+    constraints:
+    - type: not_null
+  - name: customer_sk
+    data_type: varchar
+    description: Primary holder's customer dimension version on the snapshot date
+    data_tests:
+    - not_null
+    - relationships:
+        arguments:
+          to: ref('dim_customer')
+          field: customer_sk
+    constraints:
+    - type: not_null
+  - name: account_id
+    data_type: varchar
+    description: Card account business key
+    data_tests:
+    - not_null
+    constraints:
+    - type: not_null
+  - name: customer_id
+    data_type: varchar
+    description: Primary holder business key
+    data_tests:
+    - not_null
+    constraints:
+    - type: not_null
+  - name: product_cd
+    data_type: varchar
+    description: Card product
+    data_tests:
+    - not_null
+    constraints:
+    - type: not_null
+  - name: status_cd
+    data_type: varchar
+    description: OPEN, CLOSED, CHARGED_OFF or BLOCKED
+    data_tests:
+    - not_null
+    - accepted_values:
+        arguments:
+          values:
+          - OPEN
+          - CLOSED
+          - CHARGED_OFF
+          - BLOCKED
+    constraints:
+    - type: not_null
+  - name: open_date
+    data_type: date
+    description: Account open date
+    data_tests:
+    - not_null
+    constraints:
+    - type: not_null
+  - name: months_on_book
+    data_type: integer
+    description: Whole months from open date to snapshot date
+    data_tests:
+    - not_null
+    constraints:
+    - type: not_null
+  - name: credit_limit
+    data_type: decimal(18,2)
+    description: Credit limit in USD
+  - name: statement_balance
+    data_type: decimal(18,2)
+    description: Last statement balance in USD
+  - name: current_balance
+    data_type: decimal(18,2)
+    description: Current balance in USD (prior-day close)
+    data_tests:
+    - not_null
+    constraints:
+    - type: not_null
+  - name: revolving_balance
+    data_type: decimal(18,2)
+    description: Balance carried at interest, USD
+  - name: available_credit
+    data_type: decimal(18,2)
+    description: Available credit, USD
+  - name: utilization_ratio
+    data_type: double
+    description: current_balance / credit_limit; null when no limit
+  - name: days_past_due
+    data_type: integer
+    description: Days past due
+  - name: is_delinquent
+    data_type: boolean
+    description: days_past_due > 0 (suppression rule S02)
+    data_tests:
+    - not_null
+    constraints:
+    - type: not_null
+  - name: spend_30d
+    data_type: decimal(18,2)
+    description: Purchases and cash in the 30 days ending on the snapshot date, USD
+    data_tests:
+    - not_null
+    constraints:
+    - type: not_null
+  - name: txn_count_30d
+    data_type: integer
+    description: Count of purchases and cash in the last 30 days
+    data_tests:
+    - not_null
+    constraints:
+    - type: not_null
+  - name: avg_monthly_spend_6m
+    data_type: decimal(18,2)
+    description: Average monthly spend over the last 6 months, or the shorter history available, USD
+    data_tests:
+    - not_null
+    constraints:
+    - type: not_null
+  - name: last_spend_date
+    data_type: date
+    description: Most recent purchase or cash transaction date
+  - name: days_since_last_spend
+    data_type: integer
+    description: Days from last spend to snapshot date
+  - name: lifetime_purchase_count
+    data_type: integer
+    description: Purchases on record up to the snapshot date (trigger T01)
+    data_tests:
+    - not_null
+    constraints:
+    - type: not_null
+  - name: first_purchase_date
+    data_type: date
+    description: First purchase on record
+  - name: first_card_issue_date
+    data_type: date
+    description: Issue date of the account's first card
+  - name: days_since_card_issue
+    data_type: integer
+    description: Days from first card issue to snapshot date (trigger T01 window)
+  - name: is_card_activated
+    data_type: boolean
+    description: Any card on the account activated by the snapshot date
+    data_tests:
+    - not_null
+    constraints:
+    - type: not_null
+  - name: is_fraud_flagged
+    data_type: boolean
+    description: Open fraud or dispute flag (suppression rule S03)
+    data_tests:
+    - not_null
+    constraints:
+    - type: not_null
+  - name: has_acquisition_bonus
+    data_type: boolean
+    description: Earning a new-account sign-up bonus (suppression rule S12)
+    data_tests:
+    - not_null
+    constraints:
+    - type: not_null
+  data_tests:
+  - expression_is_true:
+      arguments:
+        expression: spend_30d >= 0 and avg_monthly_spend_6m >= 0
+  - expression_is_true:
+      arguments:
+        expression: is_delinquent = (coalesce(days_past_due, 0) > 0)
+  - expression_is_true:
+      arguments:
+        expression: lifetime_purchase_count = 0 or first_purchase_date is not null
+- name: customer_360
+  description: Customer 360 data product (contracts/customer_360.yaml)
+  config:
+    contract:
+      enforced: true
+  columns:
+  - name: customer_id
+    data_type: varchar
+    description: Customer business key
+    data_tests:
+    - not_null
+    - unique
+    constraints:
+    - type: not_null
+  - name: customer_sk
+    data_type: varchar
+    description: Current customer dimension version
+    data_tests:
+    - not_null
+    - relationships:
+        arguments:
+          to: ref('dim_customer')
+          field: customer_sk
+    constraints:
+    - type: not_null
+  - name: first_name
+    data_type: varchar
+    description: First name, for offer personalization (PII)
+  - name: state_cd
+    data_type: varchar
+    description: US state
+  - name: zip3
+    data_type: varchar
+    description: First three digits of ZIP
+  - name: segment_cd
+    data_type: varchar
+    description: MASS, AFFLUENT, PREMIER or STUDENT
+  - name: customer_since_date
+    data_type: date
+    description: Date of the customer's first account
+  - name: tenure_months
+    data_type: integer
+    description: Months from customer_since_date to as_of_date
+  - name: age_years
+    data_type: integer
+    description: Age in years as of as_of_date (from birth year)
+  - name: is_deceased
+    data_type: boolean
+    description: Deceased flag (suppression rule S04)
+    data_tests:
+    - not_null
+    constraints:
+    - type: not_null
+  - name: account_count
+    data_type: integer
+    description: Accounts where the customer is primary holder
+    data_tests:
+    - not_null
+    constraints:
+    - type: not_null
+  - name: open_account_count
+    data_type: integer
+    description: Open accounts where the customer is primary holder
+    data_tests:
+    - not_null
+    constraints:
+    - type: not_null
+  - name: primary_product_cd
+    data_type: varchar
+    description: Product of the customer's highest-limit account
+  - name: total_credit_limit
+    data_type: decimal(18,2)
+    description: Total credit limit across open accounts, USD
+    data_tests:
+    - not_null
+    constraints:
+    - type: not_null
+  - name: total_current_balance
+    data_type: decimal(18,2)
+    description: Total current balance, USD
+    data_tests:
+    - not_null
+    constraints:
+    - type: not_null
+  - name: total_revolving_balance
+    data_type: decimal(18,2)
+    description: Total revolving balance, USD
+    data_tests:
+    - not_null
+    constraints:
+    - type: not_null
+  - name: utilization_ratio
+    data_type: double
+    description: total_current_balance / total_credit_limit
+  - name: max_days_past_due
+    data_type: integer
+    description: Worst days past due across accounts (suppression rule S02)
+    data_tests:
+    - not_null
+    constraints:
+    - type: not_null
+  - name: spend_30d
+    data_type: decimal(18,2)
+    description: Spend in the last 30 days across accounts, USD
+    data_tests:
+    - not_null
+    constraints:
+    - type: not_null
+  - name: avg_monthly_spend_6m
+    data_type: decimal(18,2)
+    description: Average monthly spend over 6 months across accounts, USD
+    data_tests:
+    - not_null
+    constraints:
+    - type: not_null
+  - name: last_spend_date
+    data_type: date
+    description: Most recent spend across accounts
+  - name: has_fraud_flag
+    data_type: boolean
+    description: Any account fraud-flagged (suppression rule S03)
+    data_tests:
+    - not_null
+    constraints:
+    - type: not_null
+  - name: has_acquisition_bonus
+    data_type: boolean
+    description: Any account earning a sign-up bonus (suppression rule S12)
+    data_tests:
+    - not_null
+    constraints:
+    - type: not_null
+  - name: email_opt_in
+    data_type: boolean
+    description: Marketing email consent (rules S05, S06)
+    data_tests:
+    - not_null
+    constraints:
+    - type: not_null
+  - name: push_opt_in
+    data_type: boolean
+    description: Marketing push consent (rules S05, S06)
+    data_tests:
+    - not_null
+    constraints:
+    - type: not_null
+  - name: sms_opt_in
+    data_type: boolean
+    description: Marketing SMS consent
+    data_tests:
+    - not_null
+    constraints:
+    - type: not_null
+  - name: mail_opt_in
+    data_type: boolean
+    description: Marketing direct mail consent
+    data_tests:
+    - not_null
+    constraints:
+    - type: not_null
+  - name: is_do_not_solicit
+    data_type: boolean
+    description: On the internal do-not-solicit list (rule S07)
+    data_tests:
+    - not_null
+    constraints:
+    - type: not_null
+  - name: as_of_date
+    data_type: date
+    description: Snapshot date the row reflects
+    data_tests:
+    - not_null
+    constraints:
+    - type: not_null
+  data_tests:
+  - expression_is_true:
+      arguments:
+        expression: open_account_count <= account_count

@@ -15,6 +15,8 @@ dependencies = [
     "pydantic>=2.6",
     "pyyaml>=6",
     "duckdb>=1.1",
+    "dbt-core>=1.10",
+    "dbt-duckdb>=1.10",
 ]
 
 [project.optional-dependencies]
@@ -26,6 +28,7 @@ aws = ["pyiceberg[glue,s3fs]>=0.9"]
 cardpulse-synth = "cardpulse_synth.cli:main"
 cardpulse-ingest = "cardpulse_frameworks.ingestion.cli:main"
 cardpulse-silver = "cardpulse_frameworks.silver.cli:main"
+cardpulse-gold = "cardpulse_frameworks.gold.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["frameworks", "synthetic-data"]
@@ -45,7 +48,7 @@ ignore = ["S101", "S311", "S324"]  # asserts in tests; non-crypto RNG for synthe
 [tool.ruff.lint.per-file-ignores]
 # The SQL engines build statements from version-controlled specs (columns, rules, table names),
 # never from end-user input; that is the configuration-over-code design (P6).
-"frameworks/cardpulse_frameworks/{quality,silver}/*.py" = ["S608"]
+"frameworks/cardpulse_frameworks/{quality,silver,gold}/*.py" = ["S608"]
 "tests/*.py" = ["S608"]
 
 [tool.ruff.lint.isort]

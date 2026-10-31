@@ -29,15 +29,27 @@ class LineageConfig(BaseModel):
     namespace: str = "cardpulse"
 
 
+class GoldConfig(BaseModel):
+    """Where the Gold layer is built. ``duckdb`` is the local stand-in for Snowflake."""
+
+    target: Literal["local", "snowflake"] = "local"
+    warehouse_path: str = ".lakehouse/gold/warehouse.duckdb"  # DuckDB file (local target)
+    lineage_namespace: str = "duckdb://gold"
+
+
 class EnvConfig(BaseModel):
     env: str
     landing_root: str
     writer: Literal["pyiceberg", "spark"] = "pyiceberg"
     catalog: CatalogConfig
     lineage: LineageConfig = Field(default_factory=LineageConfig)
+    gold: GoldConfig = Field(default_factory=GoldConfig)
 
     def landing_path(self) -> Path:
         return _resolve(self.landing_root)
+
+    def gold_path(self) -> Path:
+        return _resolve(self.gold.warehouse_path)
 
     def catalog_properties(self) -> dict[str, str]:
         props = {"type": self.catalog.type, **self.catalog.properties}

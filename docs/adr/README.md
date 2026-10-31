@@ -50,3 +50,17 @@ index records the decisions that shape this repository.
 | IMP-017 | SeaweedFS replaces MinIO as the S3-compatible store in the docker profile; the bucket is created by `tools/ensure_bucket.py` in the runner | The first CI run found that Docker Hub no longer serves `minio/minio` or `minio/mc` ("repository does not exist"). SeaweedFS is maintained, S3-compatible and widely used with Iceberg. AWS S3 remains the cloud target (ADR-008), so this changes only the local stand-in. |
 | IMP-018 | Docker work is built and verified in GitHub Actions, not in the build workspace | The build workspace has no Docker daemon; CI runners do, so every pull request proves the image and the full docker profile |
 | IMP-019 | The image is published to GitHub Container Registry on merge to `main`, tagged with the commit and `latest` | Versioned, pullable artifact next to the code; AWS ECR takes over with the landing zone (Increment 5) |
+
+## Decisions made during Increment 3 (Gold)
+
+| ID | Decision | Rationale |
+|---|---|---|
+| IMP-020 | Locally, Gold is built in a DuckDB file standing in for Snowflake; `cardpulse-gold` stages each Silver Iceberg table into it at its current snapshot, skipping unchanged snapshots | dbt runs on a laptop with no account; on Snowflake the staging step is removed and dbt reads Silver in place through Iceberg tables (ADR-008, ADR-017) |
+| IMP-021 | dbt runs as a subprocess, not in-process | dbt-duckdb holds the warehouse open with its own settings, so an in-process run blocked CardPulse from reading results afterwards; a subprocess also matches how Airflow (MWAA) will call dbt |
+| IMP-022 | The first version of every SCD2 member is valid from 1900-01-01, not its first load date | History starts loading at go-live, but transactions and balances go back further; without this, older facts find no dimension version |
+| IMP-023 | Each data product has one contract in two places, `contracts/*.yaml` (consumers) and an enforced dbt contract (build), and a test fails if they differ | Consumers and the build cannot drift apart silently |
+| IMP-024 | dbt test results are written to `ops.dq_results` with layer `gold`, and each model emits an OpenLineage MODEL job | One place for data quality and one lineage graph from Bronze to Gold |
+| IMP-025 | The 6-month spend average divides by the history actually observed (minimum 30 days, maximum 180), not always by 6 months | A portfolio, or a new data platform, with less than six months of history would otherwise understate the average and miss decliners (the small profile found 5 of 62 before the change) |
+| IMP-026 | The trigger populations are previewed in `cardpulse-gold report` with the Phase 4 rule as written; T02's precision finding is recorded for Increment 4 rather than changing the rule here | Changes to a business rule go through the trigger owner, measured against the planted population |
+| IMP-027 | The image is built for `linux/amd64` and `linux/arm64` with buildx and QEMU; arm64 is built on every pull request and published on merge | Apple-chip Macs run it natively without `--platform` |
+
