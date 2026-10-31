@@ -1,0 +1,121 @@
+name: docker
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+env:
+  IMAGE: ghcr.io/nabatripathy/cardpulse
+
+jobs:
+  image:
+    name: image (build, smoke test, publish on main)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Build the image
+        run: docker build -f docker/Dockerfile -t cardpulse:ci .
+
+      - name: Smoke test inside the image (small portfolio, local profile)
+        run: |
+          docker run --rm cardpulse:ci sh -c "
+            cardpulse-synth --config synthetic-data/config/small.yaml --env local --clean &&
+            cardpulse-ingest run --env local --all &&
+            cardpulse-silver run --env local --fail-on-reject &&
+            cardpulse-silver report --env local"
+
+      - name: Image size
+        run: docker image ls cardpulse:ci --format '{{.Repository}}:{{.Tag}} {{.Size}}'
+
+      - name: Log in to GitHub Container Registry
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+
+      - name: Publish (commit tag and latest)
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        run: |
+          short=$(git rev-parse --short=12 HEAD)
+          for tag in "$short" latest; do
+            docker tag cardpulse:ci "$IMAGE:$tag"
+            docker push "$IMAGE:$tag"
+          done
+          echo "Published $IMAGE:$short and $IMAGE:latest" >> "$GITHUB_STEP_SUMMARY"
+
+  docker-profile:
+    name: docker-profile (S3 store, Iceberg REST, Marquez end to end)
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      CARDPULSE_PROFILE: small
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Validate docker-compose.yml
+        run: docker compose config --quiet
+
+      - name: Pull service images
+        run: |
+          failed=0
+          for img in $(docker compose config --images | grep -v cardpulse); do
+            if docker pull --quiet "$img" >/dev/null 2>pull.err; then
+              echo "pulled $img"
+            else
+              echo "::error title=image pull failed::$img: $(tr '\n' ' ' < pull.err | cut -c1-300)"
+              failed=1
+            fi
+          done
+          exit $failed
+
+      - name: Build the runner image
+        run: docker compose --profile run build cardpulse
+
+      - name: Start SeaweedFS (S3), Iceberg REST catalog and Marquez
+        run: docker compose up -d seaweedfs iceberg-rest marquez-db marquez marquez-web
+
+      - name: Wait for the object store, catalog and Marquez
+        run: python3 tools/wait_for.py --timeout 240 http://localhost:9333/cluster/status http://localhost:8181/v1/config http://localhost:5000/api/v1/namespaces
+
+      - name: Run generate, Bronze, Silver and verification in the runner
+        run: |
+          set -o pipefail
+          docker compose --profile run run --rm cardpulse 2>&1 | tee runner.log
+
+      - name: Rerun is a no-op (idempotent against the docker services)
+        run: |
+          set -o pipefail
+          docker compose --profile run run --rm cardpulse sh -c "
+            cardpulse-ingest run --env docker --all &&
+            cardpulse-silver run --env docker --fail-on-reject" 2>&1 | tee rerun.txt
+          python3 tools/check_rerun_noop.py rerun.txt
+
+      - name: Lineage in Marquez
+        run: |
+          curl -fsS "http://localhost:5000/api/v1/namespaces/cardpulse-docker/jobs?limit=100" \
+            | python3 -c "import json,sys; jobs=json.load(sys.stdin)['jobs']; print(len(jobs), 'jobs:', ', '.join(sorted(j['name'] for j in jobs)))"
+
+      - name: Service logs
+        if: failure()
+        run: |
+          docker compose ps -a
+          for f in runner.log rerun.txt; do
+            [ -f "$f" ] || continue
+            msg=$(grep -v '^{' "$f" | tail -c 3000 | sed ':a;N;$!ba;s/%/%25/g;s/\r//g;s/\n/%0A/g')
+            echo "::error title=output: $f::$msg"
+          done
+          for svc in seaweedfs iceberg-rest marquez-db marquez; do
+            docker compose --profile run logs --no-color --tail 25 "$svc" > "svc.log" 2>&1 || true
+            msg=$(tail -c 2500 svc.log | sed ':a;N;$!ba;s/%/%25/g;s/\r//g;s/\n/%0A/g')
+            echo "::error title=logs: $svc::$msg"
+          done
+
+      - name: Stop
+        if: always()
+        run: docker compose --profile run down -v

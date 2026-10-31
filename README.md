@@ -8,12 +8,13 @@ architecture, detailed design).
 **All data is synthetic.** No real people, accounts or card numbers are used or
 generated (ADR-004), and CI blocks card numbers from entering the repository.
 
-## Status: Increment 2 of Phase 5
+## Status: Increment 2 of Phase 5, plus container packaging
 
 | Increment | Scope | Status |
 |---|---|---|
 | 1 | Repository skeleton, local profile, synthetic data generator, config-driven Bronze ingestion | Done |
-| 2 | Silver conformance: typing, dedup, SCD Type 2 history, YAML data quality engine and gates | **Done** (this pull request) |
+| 2 | Silver conformance: typing, dedup, SCD Type 2 history, YAML data quality engine and gates | Done |
+| 2a | Container image and docker profile verified in CI; image published to GitHub Container Registry | **Done** (this pull request) |
 | 3 | Gold in dbt: star schema, Customer 360, Card Account Snapshot | Next |
 | 4 | Triggers T01/T02, eligibility and suppression service, decision logging | Planned |
 | 5 | Observability, CI/CD to AWS, Terraform landing zone, thin cloud slice | Planned |
@@ -26,6 +27,26 @@ Python 3.11+ and nothing else; no Docker, JVM or cloud account needed.
 make setup        # virtualenv + editable install with dev tools
 make demo         # reset, generate 10,000 customers / 6 months, load Bronze and Silver, report
 make test         # 60 tests, about 2 minutes
+```
+
+### Or run it with Docker
+
+The image is built and tested on every pull request and published on every merge to `main`:
+
+```bash
+docker run --rm ghcr.io/nabatripathy/cardpulse:latest sh -c "
+  cardpulse-synth --config synthetic-data/config/small.yaml --env local --clean &&
+  cardpulse-ingest run --env local --all &&
+  cardpulse-silver run --env local && cardpulse-silver report --env local"
+```
+
+The full docker profile (SeaweedFS as the S3 store, the Iceberg REST catalog, Marquez for lineage) needs Docker Desktop:
+
+```bash
+make up                         # start SeaweedFS (S3), Iceberg REST, Marquez, Marquez UI
+PROFILE=small make demo-docker  # generate, Bronze, Silver, then verify tables in the S3 store and lineage in Marquez
+open http://localhost:3000      # Marquez lineage UI
+make down
 ```
 
 `make help` lists every target. `PROFILE=small make synth` generates a 1,000-customer portfolio.
@@ -45,7 +66,8 @@ After `make synth && make ingest`, `make silver` runs Silver on its own and `mak
 | Lineage (OpenLineage) | `ingestion/lineage.py` | E06 | PT-12; Bronze INGEST and Silver TRANSFORM jobs |
 | Environment profiles | `configs/env/` (local, docker, aws-dev) | E01, E05 | Same code, different config |
 | CI pipeline | `.github/workflows/ci.yml` | E05 | Lint, format, PAN scan, spec validation, tests, Bronze + Silver smoke run |
-| Docker profile | `docker-compose.yml`, `docker/Dockerfile` | E05 | MinIO, Iceberg REST catalog, Marquez |
+| **Container pipeline** | `.github/workflows/docker.yml` | E05 | Builds and smoke-tests the image on every PR; publishes `ghcr.io/nabatripathy/cardpulse` on merge; runs the full docker profile end to end |
+| Docker profile | `docker-compose.yml`, `docker/Dockerfile`, `tools/wait_for.py`, `tools/ensure_bucket.py`, `tools/verify_docker_profile.py` | E05 | SeaweedFS (S3), Iceberg REST catalog, Marquez; verified in CI |
 
 ## How Bronze ingestion works
 
@@ -153,7 +175,8 @@ Every rule result (rows checked, failed, threshold, PASS/WARN/FAIL) is written t
 | Item | Status |
 |---|---|
 | Local profile (PyIceberg, DuckDB, SQLite catalog, local files) | Verified: tests and demo |
-| Docker profile (MinIO, Iceberg REST, Marquez) | Written, not started: the build workspace had no Docker daemon. CI validates the compose file. |
+| Container image | Built and smoke-tested in CI on every pull request; published to GitHub Container Registry on merge |
+| Docker profile (SeaweedFS as S3, Iceberg REST, Marquez) | Verified in CI on every pull request: Bronze and Silver tables land in the S3 store through the REST catalog, every job's lineage reaches Marquez, and a rerun is a no-op |
 | Spark writer for EMR | Bronze path written, not exercised; Silver operations on Spark are stubs until the EMR profile (they become `MERGE INTO`) |
 | AWS dev profile (Glue catalog) | Config only; needs the Terraform landing zone (Increment 5) |
 | Scale beyond the default profile | The 1M-customer `scale` profile is untested. Silver reads the current versions of a history table into DuckDB for each unit, which is fine at demo scale; at 10M accounts this moves to partition-scoped `MERGE INTO` on Spark or Snowflake. |

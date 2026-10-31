@@ -21,13 +21,18 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--config", default="synthetic-data/config/default.yaml", help="generator settings (YAML)")
     p.add_argument("--env", default="local", help="environment name or path; decides the landing root")
     p.add_argument("--out", help="override the landing root")
-    p.add_argument("--clean", action="store_true", help="delete the landing root first")
+    p.add_argument("--clean", action="store_true", help="empty the landing root first")
     args = p.parse_args(argv)
 
     cfg = load_config(args.config)
     root = Path(args.out) if args.out else load_env(args.env).landing_path()
     if args.clean and root.exists():
-        shutil.rmtree(root)
+        # Empty the directory rather than remove it: in docker it is a volume mount point.
+        for child in root.iterdir():
+            if child.is_dir() and not child.is_symlink():
+                shutil.rmtree(child)
+            else:
+                child.unlink()
     t0 = time.perf_counter()
     m = generate(cfg, root)
     secs = time.perf_counter() - t0
