@@ -18,3 +18,7 @@ lineage:
   transport: http
   url: http://marquez:5000
   namespace: cardpulse-docker
+gold:
+  target: local
+  warehouse_path: /data/gold/warehouse.duckdb
+  lineage_namespace: duckdb://gold

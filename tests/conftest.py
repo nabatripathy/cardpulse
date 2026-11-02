@@ -71,3 +71,19 @@ def build_lake(tmp: Path, landing: Path, silver: bool = True) -> dict:
         "bronze_specs": {s.name: s for s in bronze_specs},
         "silver_specs": {s.entity: s for s in silver_specs},
     }
+
+
+def build_gold(lk: dict, select: list[str] | None = None, full_refresh: bool = False):
+    """Stage Silver into the lake's Gold warehouse, run dbt build, record DQ and lineage."""
+    from cardpulse_frameworks.common.config import GoldConfig
+    from cardpulse_frameworks.gold.runner import emit_lineage, record_dq, run_build
+    from cardpulse_frameworks.gold.stage import stage_silver
+
+    env = lk["env"]
+    if env.gold.warehouse_path == GoldConfig().warehouse_path:
+        env.gold = GoldConfig(warehouse_path=str(Path(env.lineage.path).parent / "gold" / "warehouse.duckdb"))
+    staged = stage_silver(lk["writer"], [s.target_table for s in lk["silver_specs"].values()], env.gold_path())
+    run = run_build(env, select, full_refresh)
+    record_dq(lk["writer"], run, lk["lineage"].new_run_id())
+    emit_lineage(env, lk["lineage"], run)
+    return staged, run

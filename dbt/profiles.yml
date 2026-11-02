@@ -1,0 +1,22 @@
+# Targets: local and docker use DuckDB; snowflake is the cloud target (not exercised yet).
+cardpulse:
+  target: "{{ env_var('CARDPULSE_DBT_TARGET', 'local') }}"
+  outputs:
+    local:
+      type: duckdb
+      path: "{{ env_var('CARDPULSE_GOLD_PATH', '../.lakehouse/gold/warehouse.duckdb') }}"
+      threads: 4
+      settings:
+        TimeZone: UTC
+        autoinstall_known_extensions: false
+        autoload_known_extensions: false
+    snowflake:
+      type: snowflake
+      account: "{{ env_var('SNOWFLAKE_ACCOUNT', 'unset') }}"
+      user: "{{ env_var('SNOWFLAKE_USER', 'unset') }}"
+      authenticator: externalbrowser
+      role: F_DATA_ENGINEER
+      warehouse: WH_TRANSFORM
+      database: "CARDPULSE_{{ env_var('CARDPULSE_ENV', 'DEV') | upper }}"
+      schema: GOLD
+      threads: 8

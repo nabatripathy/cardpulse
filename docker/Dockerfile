@@ -23,11 +23,12 @@ RUN pip install -e ".[aws]"
 
 COPY configs ./configs
 COPY contracts ./contracts
+COPY dbt ./dbt
 COPY tools ./tools
 
 RUN useradd --create-home --uid 10001 cardpulse \
-    && mkdir -p /data/landing \
+    && mkdir -p /data/landing /data/gold \
     && chown -R cardpulse /data /app
 USER cardpulse
 
-CMD ["sh", "-c", "cardpulse-synth --help && cardpulse-ingest --help && cardpulse-silver --help"]
+CMD ["sh", "-c", "cardpulse-synth --help && cardpulse-ingest --help && cardpulse-silver --help && cardpulse-gold --help"]

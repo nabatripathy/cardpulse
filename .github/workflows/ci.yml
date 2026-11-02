@@ -36,5 +36,11 @@ jobs:
           cardpulse-synth --config synthetic-data/config/small.yaml --env local --clean
           cardpulse-ingest run --env local --all
           cardpulse-silver run --env local --fail-on-reject
+          cardpulse-gold run --env local
           cardpulse-ingest report --env local
           cardpulse-silver report --env local
+          cardpulse-gold report --env local
+      - name: Gold rerun is a no-op (Silver unchanged, nothing restaged)
+        run: |
+          cardpulse-gold run --env local | tee gold-rerun.txt
+          python tools/check_rerun_noop.py gold-rerun.txt

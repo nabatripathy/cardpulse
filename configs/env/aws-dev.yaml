@@ -14,3 +14,6 @@ lineage:
   transport: http
   url: http://marquez.cardpulse-dev.internal:5000
   namespace: cardpulse-dev
+gold:
+  target: snowflake   # dbt reads Silver through Snowflake Iceberg tables (ADR-008, ADR-017)
+  lineage_namespace: snowflake://cardpulse
