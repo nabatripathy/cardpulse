@@ -1,0 +1,60 @@
+# Suppression rule catalog (Phase 4). Applied in this order; every matching code is recorded
+# and the first one is the primary reason. Reviewed by Compliance as text.
+#
+# `when` is SQL over one evaluation row (customer x offer, plus the triggering account for a
+# decision). Columns available: see EVAL_COLUMNS in frameworks/cardpulse_frameworks/decisioning/engine.py.
+# For the customer-level Offer Eligibility product, account columns are the customer's
+# aggregates: status_cd is OPEN if any account is open, days_past_due is the maximum, and the
+# fraud and sign-up bonus flags are true if any account has them.
+rule_set: offer_eligibility
+version: 1.0.0
+rules:
+  - code: S01
+    name: Account closed, blocked, charged off, or in bankruptcy
+    when: status_cd <> 'OPEN'
+    basis: Credit policy
+  - code: S02
+    name: Account delinquent (days past due above 0)
+    when: coalesce(days_past_due, 0) > 0
+    basis: Credit policy, UDAAP
+  - code: S03
+    name: Open fraud or dispute case
+    when: is_fraud_flagged
+    basis: Fraud policy
+  - code: S04
+    name: Deceased flag
+    when: is_deceased
+    basis: Policy
+  - code: S05
+    name: Opted out of marketing (every channel)
+    when: NOT (email_opt_in OR push_opt_in OR sms_opt_in OR mail_opt_in)
+    basis: GLBA, CCPA
+  - code: S06
+    name: No consent for any of the offer's channels (email unsubscribed, push not enabled)
+    when: channel_cd IS NULL
+    basis: CAN-SPAM, TCPA
+  - code: S07
+    name: Internal do-not-solicit list
+    when: is_do_not_solicit
+    basis: Policy
+  - code: S08
+    name: Contact cap reached (2 marketing contacts in 30 days, or 1 in 7 days); service messages exempt
+    when: marketing_contacts_30d >= 2 OR marketing_contacts_7d >= 1
+    basis: Customer experience
+  - code: S09
+    name: Same offer received in the last 90 days
+    when: same_offer_contacts_90d > 0
+    basis: Customer experience
+  - code: S10
+    name: Offer or campaign inactive, or no Compliance approval id
+    when: NOT offer_active OR compliance_approval_id IS NULL
+    basis: UDAAP
+  - code: S11
+    name: Offer requires a credit decision and the credit policy check fails (R2 offers)
+    when: requires_credit_decision AND NOT passes_credit_policy
+    basis: FCRA, credit policy
+    enabled: false   # no MVP offer needs a credit decision; enabled with the R2 offers
+  - code: S12
+    name: Activation bonus offered to an account already earning a new-account sign-up bonus
+    when: offer_code LIKE 'ACT_BONUS%' AND has_acquisition_bonus
+    basis: UDAAP, customer experience (ADR-032)

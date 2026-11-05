@@ -8,16 +8,16 @@ architecture, detailed design).
 **All data is synthetic.** No real people, accounts or card numbers are used or
 generated (ADR-004), and CI blocks card numbers from entering the repository.
 
-## Status: Increment 3 of Phase 5
+## Status: Increment 4 of Phase 5
 
 | Increment | Scope | Status |
 |---|---|---|
 | 1 | Repository skeleton, local profile, synthetic data generator, config-driven Bronze ingestion | Done |
 | 2 | Silver conformance: typing, dedup, SCD Type 2 history, YAML data quality engine and gates | Done |
 | 2a | Container image and docker profile verified in CI; image published to GitHub Container Registry | Done |
-| 3 | Gold in dbt: star schema, Customer 360, Card Account Snapshot; multi-arch (Apple-chip) image | **Done** (this pull request) |
-| 4 | Triggers T01/T02, eligibility and suppression service, decision logging | Next |
-| 5 | Observability, CI/CD to AWS, Terraform landing zone, thin cloud slice | Planned |
+| 3 | Gold in dbt: star schema, Customer 360, Card Account Snapshot; multi-arch (Apple-chip) image | Done |
+| 4 | Triggers T01/T02, eligibility and suppression (S01–S12), holdouts, decision log, Offer Eligibility data product | **Done** (this pull request) |
+| 5 | Observability, CI/CD to AWS, Terraform landing zone, thin cloud slice | Next |
 
 ## Quickstart
 
@@ -25,10 +25,18 @@ Python 3.11+ and nothing else; no Docker, JVM or cloud account needed.
 
 ```bash
 make setup        # virtualenv + editable install with dev tools
-make demo         # reset, generate 10,000 customers / 6 months, Bronze, Silver, Gold (dbt), report
-make test         # 72 tests, about 2.5 minutes
-make dbt-docs     # dbt docs site: model lineage graph, model and column documentation
+make demo         # reset, generate 10,000 customers / 6 months, Bronze, Silver, Gold (dbt), decisions, report
+make test         # 85 tests, about 4 minutes
+make dbt-docs     # dbt docs site on http://localhost:8080: lineage graph, model and column docs
 ```
+
+**Mac setup notes**
+
+| Symptom | Fix |
+|---|---|
+| `make setup` (pip) is very slow resolving dbt | Use [uv](https://docs.astral.sh/uv/): `curl -LsSf https://astral.sh/uv/install.sh \| sh`, open a new Terminal, then `uv venv .venv && uv pip install -e ".[dev]"` |
+| `zsh: command not found: uv` right after installing it | `source $HOME/.local/bin/env` (or open a new Terminal window) |
+| `CERTIFICATE_VERIFY_FAILED` while building `dbt-core-experimental-parser` | Python from python.org needs its certificates installed once: `open "/Applications/Python 3.14/Install Certificates.command"` (use your version), or for one session `export SSL_CERT_FILE=/etc/ssl/cert.pem` |
 
 ### Or run it with Docker
 
@@ -61,17 +69,20 @@ After `make synth && make ingest`, `make silver` and `make gold` run each layer 
 |---|---|---|---|
 | Synthetic data generator | `synthetic-data/cardpulse_synth/` | E03 | Seeded, deterministic; builds T01, T02 and every suppression population on purpose; writes a prior-day master snapshot so Silver builds real history |
 | Config-driven ingestion framework | `frameworks/cardpulse_frameworks/ingestion/` | E04 | PT-01, PT-02, PT-04, PT-05, PT-12 |
-| 10 source specs (YAML) | `configs/sources/` | E04 | P6 configuration over code |
-| **Silver conformance framework** | `frameworks/cardpulse_frameworks/silver/` | E07 | PT-02, PT-03, PT-04, PT-05, PT-12 |
-| **10 Silver entity specs (YAML)** | `configs/silver/` | E07 | Column expressions, load type, dedup, DQ rules |
+| 11 source specs (YAML) | `configs/sources/` | E04 | P6 configuration over code; includes the contact history feed |
+| Silver conformance framework | `frameworks/cardpulse_frameworks/silver/` | E07 | PT-02, PT-03, PT-04, PT-05, PT-12 |
+| 11 Silver entity specs (YAML) | `configs/silver/` | E07 | Column expressions, load type, dedup, DQ rules |
 | **Data quality rules engine** | `frameworks/cardpulse_frameworks/quality/` | E12 | Phase 4 DQ rules as configuration; results in `ops.dq_results` |
 | PCI guard and redaction | `frameworks/cardpulse_frameworks/common/pan.py` | E06 | DQ-02, P2 compliance by design |
-| **Gold layer in dbt** | `dbt/`, `frameworks/cardpulse_frameworks/gold/` | E08, E09 | Star schema with as-of SCD2 joins, incremental fact, enforced model contracts, 85 dbt tests |
-| **Data products** | `gold.customer_360`, `gold.fct_account_daily_snapshot`; contracts in `contracts/` | E09 | Contract file and dbt contract kept identical by a test |
-| Lineage (OpenLineage) | `ingestion/lineage.py`, `gold/runner.py` | E06 | PT-12; Bronze INGEST, Silver TRANSFORM and Gold MODEL jobs |
+| Gold layer in dbt | `dbt/`, `frameworks/cardpulse_frameworks/gold/` | E08, E09 | Star schema with as-of SCD2 joins, incremental fact, enforced model contracts, 91 dbt tests |
+| **Decision engine** | `frameworks/cardpulse_frameworks/decisioning/` | E10, E11 | Versioned trigger and suppression rules as SQL in YAML; repeat rules; ordered reason codes; stable holdouts; one marketing message per customer a day |
+| **Trigger and rule specs (YAML)** | `configs/triggers/`, `configs/eligibility/` | E10, E11 | T01 1.0.0, T02 1.1.0, suppression catalog S01–S12 1.0.0; Compliance reviews them as text |
+| Data products | `gold.customer_360`, `gold.fct_account_daily_snapshot` (1.1.0), **`gold.offer_eligibility`**; contracts in `contracts/` | E09, E11 | Contract file and dbt contract kept identical by a test |
+| **Decision log** | `decision.*` Iceberg tables; `gold.fct_trigger_event`, `gold.fct_offer_decision` | E11 | Outcome, offer, channel, every matching reason code, trigger, rule and model versions, holdout bucket |
+| Lineage (OpenLineage) | `ingestion/lineage.py`, `gold/runner.py`, `decisioning/cli.py` | E06 | PT-12; Bronze INGEST, Silver TRANSFORM, DECISION and Gold MODEL jobs |
 | Environment profiles | `configs/env/` (local, docker, aws-dev) | E01, E05 | Same code, different config |
-| CI pipeline | `.github/workflows/ci.yml` | E05 | Lint, format, PAN scan, spec validation, tests, Bronze + Silver + Gold smoke run, Gold rerun no-op |
-| Container pipeline | `.github/workflows/docker.yml` | E05 | Builds and smoke-tests the image on every PR; builds amd64 + arm64 and publishes `ghcr.io/nabatripathy/cardpulse` on merge; runs the full docker profile end to end |
+| CI pipeline | `.github/workflows/ci.yml` | E05 | Lint, format, PAN scan, spec and rule validation, tests, smoke run through decisions, Gold rerun no-op |
+| Container pipeline | `.github/workflows/docker.yml` | E05 | Builds and smoke-tests the image natively on Intel and Arm runners on every PR; publishes one multi-arch `ghcr.io/nabatripathy/cardpulse` on merge; runs the full docker profile end to end |
 | Docker profile | `docker-compose.yml`, `docker/Dockerfile`, `tools/wait_for.py`, `tools/ensure_bucket.py`, `tools/verify_docker_profile.py` | E05 | SeaweedFS (S3), Iceberg REST catalog, Marquez; verified in CI |
 
 ## How Bronze ingestion works
@@ -148,6 +159,25 @@ Every rule result (rows checked, failed, threshold, PASS/WARN/FAIL) is written t
 | Tests | 85 dbt tests: keys, not-null, accepted values, relationships, plus singular tests for one current version per member, no overlapping versions, fact-to-Silver reconciliation, snapshot-to-Silver balance reconciliation (DQ-15), snapshot grain, and Customer 360 coverage. |
 | Results and lineage | Every dbt test result is written to `ops.dq_results` with layer `gold`, next to Silver's rules. Each model emits an OpenLineage MODEL job whose inputs are the Silver Iceberg tables or upstream Gold models, so Marquez shows Bronze to Gold end to end. |
 
+## How decisioning works
+
+`cardpulse-decide run` evaluates one business date (the latest snapshot by default):
+
+| Step | What happens |
+|---|---|
+| Triggers | Each trigger in `configs/triggers/` is a list of SQL conditions over the Card Account Snapshot. An account that meets them all is a trigger event, recorded with the input values that made it fire |
+| Repeat rules | A trigger that fired for the account within `min_gap_days`, or `max_fires` times in `lookback_days`, holds the event back (`SKIPPED_REPEAT_GAP`, `SKIPPED_MAX_FIRES`). Fires come from the contact history and this platform's own earlier decisions |
+| Offers | Each fired event is evaluated against its trigger's offers in rank order; the channel is the first of the trigger's channels the customer consents to |
+| Suppression | Every rule in `configs/eligibility/suppression_rules.yaml` is checked; all matching codes are kept in catalog order and the first is the primary reason. The best-ranked offer with no code wins; if every offer is blocked, the decision is `SUPPRESSED` |
+| Holdout | Eligible decisions in a stable 0–99 bucket (hash of customer and trigger) below the trigger's `holdout_pct` become `HOLDOUT`: logged with the offer they would have received, never sent. The same customer stays in or out of the holdout every day, which lift measurement needs |
+| Daily cap | One marketing message per customer per day: if two triggers reach the same customer, the second is suppressed with S08 |
+| Decision log | `decision.trigger_event` and `decision.offer_decision` (Iceberg) are replaced for the business date in one atomic commit each, so a rerun gives the same result; every row carries the trigger, rule-set and model versions |
+| Offer Eligibility | The same rules at customer level for every customer and active offer, overwritten each run: the data product the eligibility service serves online |
+| Publish | The three tables are staged into the Gold warehouse and dbt builds `fct_trigger_event`, `fct_offer_decision` and `offer_eligibility` (enforced contract) with 30 tests; results go to `ops.dq_results` and lineage to OpenLineage |
+
+The rule files are the Compliance review surface: changing a threshold is a one-line YAML change with a version
+bump, and every decision records the versions it was made under.
+
 ## Demo results (default profile, local run)
 
 | Measure | Result |
@@ -155,24 +185,30 @@ Every rule result (rows checked, failed, threshold, PASS/WARN/FAIL) is written t
 | Portfolio | 10,000 customers, 11,200 accounts, 12,136 cards, 2,020 merchants; master snapshots for 2027-03-14 and 2027-03-15 |
 | Transactions | 792,677 posted transactions over 181 days, in 276 files (180 daily + 96 fifteen-minute files) |
 | Bronze | 792,650 transactions loaded; 4 card numbers and 2 malformed records quarantined; 1 file rejected for a bad trailer; watermark at sequence 6 of 96 |
-| Silver run time, all 10 entities | 21 s |
+| Silver run time, all 11 entities | 20 s |
 | Silver transactions | 788,462 (everything at or below the watermark); 89 fifteen-minute batches held until file 7 is resent |
 | SCD Type 2 history built | 331 credit line increases, 172 segment changes, 789 consent changes, 14 card activations, 14 merchant renames, each closing the old version and opening a new one |
-| Data quality | 96 rules evaluated; 0 critical failures; DQ-05 (unknown MCC) flagged as a warning |
-| Gold build | 8 models and 9 staging views in 9 s (14 s with staging); 85 of 85 dbt tests pass; rerun stages nothing and adds no rows |
-| Gold tables | `fct_transaction` 788,462 rows (reconciles to Silver); `fct_account_daily_snapshot` 11,200; `customer_360` 10,000; `dim_account` 11,531 versions; `dim_customer` 10,172 versions |
+| Data quality | 110 Silver rules evaluated; 0 critical failures; DQ-05 (unknown MCC) flagged as a warning |
+| Contact history | 25,654 marketing and service contacts over 90 days, in 90 daily files, loaded through Bronze and Silver |
+| Gold build | 9 models and 10 staging views in about 10 s; 91 of 91 dbt tests pass; rerun stages nothing and adds no rows |
+| Gold tables | `fct_transaction` 788,462 rows (reconciles to Silver); `fct_account_daily_snapshot` 11,200; `customer_360` 10,000; `fct_offer_contact` 25,654; `dim_account` 11,531 versions; `dim_customer` 10,172 versions |
 | Portfolio KPIs (`gold.customer_360`) | 10,771 open accounts; credit limit USD 92.7M; receivables USD 24.9M; 30-day spend USD 9.4M; 8,551 email and 5,478 push opt-ins; 111 do-not-solicit; 350 customers with a delinquent account |
-| T01 preview (before suppression) | 121 accounts; includes all 42 planted never-activated accounts in the 10–60 day window; the rest are genuinely new accounts with no purchase yet |
-| T02 preview (before suppression) | 1,692 accounts; finds 499 of 616 eligible planted decliners (recall 0.81) |
-| Full `make demo` | About 1 minute 45 seconds |
+| Decisions | See the next table; engine 0.4 s, publish to Gold with 30 of 30 dbt tests passing in 7 s |
+| Offer Eligibility | 40,000 rows (10,000 customers x 4 active offers); 30,804 eligible |
+| Full `make demo` | About 2 minutes |
 
-**Finding for Increment 4 (T02 precision).** The Phase 4 rule (30-day spend under half the 6-month
-average) flags about 1 in 5 eligible accounts, and only 3 in 10 flagged accounts are planted
-decliners. That is real behaviour, not a pipeline defect: a typical account has about 10 purchases a month
-and ticket sizes are skewed, so a single 30-day total is usually below the long-run average (median ratio
-0.88) and about 13% of ordinary accounts fall under the 50% line in any month. Increment 4 will
-measure two refinements against the planted population before the trigger goes live: a minimum
-transaction count in the baseline window, and confirmation over two consecutive snapshots.
+| Trigger | Met conditions | Held by repeat rule | Fired | Suppressed | Holdout | Sent |
+|---|---:|---:|---:|---:|---:|---:|
+| T01 new account not activated (1.0.0) | 121 | 16 | 105 | 24 | 26 | 55 |
+| T02 spend decline (1.1.0) | 980 | 26 | 954 | 257 | 68 | 629 |
+
+| Check against the planted populations | Result |
+|---|---|
+| T01 | All 42 planted never-activated accounts in the 10–60 day window meet the conditions; the 16 held back were contacted for T01 in the last 15 days, or twice already |
+| T02 rule choice (IMP-029) | 1.0.0 (spend only) flagged 1,692 eligible accounts at precision 0.29; 1.1.0 (spend < 60% **and** purchase count < 50%) flags 860 at precision 0.56, recall 0.78 |
+| T02 offers sent | 629, of which 341 (54%) to planted decliners, against 29% under the original rule |
+| Suppression | Every code S01–S10 and S12 fires on the portfolio; T02's largest reasons are S01 (120 closed or charged-off accounts whose spend naturally stopped), S08 contact cap (76) and S06 no channel consent (42) |
+| Offer fallback | 17 T02 customers received rank-2 `RET_BONUS_POINTS` because S09 blocked `RET_CATEGORY_BOOST` (sent to them in the last 90 days); 8 T01 customers received the wallet nudge because S12 or S09 blocked the activation bonus |
 
 ## Tests
 
@@ -183,6 +219,7 @@ transaction count in the baseline window, and confirmation over two consecutive 
 | `test_spec.py` | All 10 source specs validate; malformed specs are refused |
 | `test_ingest.py` | Bronze reconciliation, defect detection, PAN safety, lineage, reruns, reprocessing, resends, crash recovery |
 | `test_quality.py` | Each DQ check type, `where` scoping, thresholds and statuses, dataset rules, invalid rules refused |
+| `test_decide.py` | Specs cover the Phase 4 catalog; the run publishes to Gold with every dbt test passing; the Offer Eligibility contract matches dbt and the built table; every suppression code matches its rule, in catalog order; the contact cap counts marketing contacts only; each decision takes the best eligible offer, holdouts follow the bucket, one message per customer a day; repeat rules hold back recently triggered accounts; yesterday's sends count as contacts and fires; an unknown offer is suppressed with S10; a rule that does not compile is reported; holdout buckets are stable and uniform; lineage and DQ recorded; a rerun replaces the business date |
 | `test_gold.py` | dbt build passes every test; every Silver table staged; facts and products reconcile to Silver; SCD2 dimensions start at the beginning of time so old transactions find a version; contract files match the enforced dbt contracts and the built columns; Customer 360 consent and do-not-solicit flags match Silver; T01 contains every planted never-activated account; T02 recall on planted decliners with six months of history; 30-day spend matches Silver to the cent; DQ results and lineage recorded; rerun is a no-op and a resend adds exactly the released transactions |
 | `test_silver.py` | Type 2 history matches the generated changes (no overlapping versions, one current per key); Type 1 has no history; transactions typed and linked; watermark holds later batches; Bronze-to-Silver reconciliation; DQ results recorded; rerun is a no-op; resend releases held batches with dedup and warnings; crash after commit does not duplicate; DQ gate rejects a whole unit and `--retry-rejected` re-evaluates; critical failures under threshold are quarantined; out-of-order snapshot needs a rebuild; rebuild reproduces Silver exactly |
 
@@ -190,14 +227,15 @@ transaction count in the baseline window, and confirmation over two consecutive 
 
 | Path | Contents |
 |---|---|
-| `frameworks/` | Reusable engineering frameworks: `ingestion`, `silver`, `quality`, `gold`, `common` |
+| `frameworks/` | Reusable engineering frameworks: `ingestion`, `silver`, `quality`, `gold`, `decisioning`, `common` |
 | `synthetic-data/` | Generator package and profiles (`small`, `default`, `scale`) |
 | `configs/env/` | Environment profiles: `local`, `docker`, `aws-dev` |
 | `configs/sources/` | One YAML spec per landed entity (Bronze) |
 | `configs/silver/` | One YAML spec per conformed entity (Silver), prefixed by run order |
+| `configs/triggers/`, `configs/eligibility/` | Versioned trigger rules (T01, T02) and the suppression rule catalog (S01–S12) |
 | `contracts/` | Data product contracts: Customer 360, Card Account Snapshot, Offer Eligibility (Phase 4) |
-| `dbt/` | Gold dbt project: staging views over Silver, core star schema, data products, singular tests, macros |
-| `tools/` | Repository card-number scan used in CI |
+| `dbt/` | Gold dbt project: staging views over Silver and decisions, core star schema, data products, decisioning marts, singular tests, macros |
+| `tools/` | Card-number scan, docker-profile helpers and verifier, rerun checker, dbt docs server |
 | `docs/adr/` | ADR index and implementation decisions |
 | `infra/`, `pipelines/`, `services/`, `ml/`, `observability/` | Placeholders for later increments |
 
@@ -210,7 +248,9 @@ transaction count in the baseline window, and confirmation over two consecutive 
 | Docker profile (SeaweedFS as S3, Iceberg REST, Marquez) | Verified in CI on every pull request: Bronze and Silver tables land in the S3 store through the REST catalog, Gold builds with every dbt test passing, every job's lineage (including each Gold model) reaches Marquez, and a rerun is a no-op |
 | Gold on DuckDB (Snowflake stand-in) | Verified: tests, demo, CI smoke run and docker profile |
 | Gold on Snowflake | dbt `snowflake` output defined in `dbt/profiles.yml`; not exercised until the AWS slice (Increment 5). Models use portable SQL except `select * exclude(...)`, which Snowflake also supports |
-| arm64 (Apple-chip) image | Built by buildx under QEMU on every pull request; published on merge |
+| arm64 (Apple-chip) image | Built and smoke-tested natively on a GitHub Arm runner on every pull request; published with amd64 as one multi-arch tag on merge |
+| Decision engine on DuckDB | Verified: tests, demo, CI smoke run, both images and the docker profile |
+| Eligibility service online (DynamoDB, real-time S06/S08 re-check) | Designed in Phase 4; the batch engine produces the Offer Eligibility product it would serve |
 | Spark writer for EMR | Bronze path written, not exercised; Silver operations on Spark are stubs until the EMR profile (they become `MERGE INTO`) |
 | AWS dev profile (Glue catalog) | Config only; needs the Terraform landing zone (Increment 5) |
 | Scale beyond the default profile | The 1M-customer `scale` profile is untested. Silver reads the current versions of a history table into DuckDB for each unit, which is fine at demo scale; at 10M accounts this moves to partition-scoped `MERGE INTO` on Spark or Snowflake. |
@@ -223,3 +263,8 @@ transaction count in the baseline window, and confirmation over two consecutive 
 - The Card Account Snapshot exists for the business date only, because balances are generated for that date only; the model is built to take daily history when it arrives.
 - Gold is staged from Silver into DuckDB as a full copy of each changed table; on Snowflake, dbt reads the Silver Iceberg tables in place.
 - Landing is read from a local path in every profile; native S3 reads come with the EMR profile.
+- Offers are taken in configured rank order (`model_version: rules-only`); the propensity model that ranks them comes with the ML increment.
+- Holdout percentages are fixed per trigger version; T01's planned step-down from 25% to 10% after eight weeks (ADR-030) is a version change, not automatic.
+- Real-time parts of the Phase 4 design are not built: cancelling a pending T01 offer when a first purchase posts, push quiet hours (8 p.m.–8 a.m. local) and delivery. Until delivery feedback exists, a `SENT` decision counts as a contact.
+- S11 (credit decision for R2 offers) is in the catalog but disabled: no MVP offer needs a credit decision.
+- The demo has one business date, so repeat rules and contact caps are exercised by the generated contact history and by tests that replay a previous day's decisions.

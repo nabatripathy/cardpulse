@@ -1,0 +1,22 @@
+# Trigger T02 (Phase 4 rule specification, refined in Increment 4).
+# 1.0.0 fired on spend alone (30-day spend < 50% of the 6-month average): recall 0.81 but
+# precision 0.29 on the synthetic portfolio, because one month of a few large or small tickets
+# swings spend. 1.1.0 also requires the purchase count to fall, which nearly doubles precision
+# (0.56) for a 0.03 loss of recall (IMP-029). To go back to 1.0.0, replace the two decline
+# conditions with: spend_30d < 0.5 * avg_monthly_spend_6m
+trigger: T02_SPEND_DECLINE
+version: 1.1.0
+description: Seasoned account whose spend and purchase frequency both fell well below its 6-month average
+entity: account
+evaluate: daily
+when:
+  - months_on_book >= 6
+  - avg_monthly_spend_6m >= 200
+  - spend_30d < 0.6 * avg_monthly_spend_6m
+  - txn_count_30d < 0.5 * avg_monthly_txn_count_6m
+  - coalesce(days_past_due, 0) = 0
+record: [spend_30d, avg_monthly_spend_6m, txn_count_30d, avg_monthly_txn_count_6m]
+repeat: {max_fires: 1, min_gap_days: 60, lookback_days: 60}
+offers: [RET_CATEGORY_BOOST, RET_BONUS_POINTS]
+channels: [EMAIL, PUSH]
+holdout_pct: 10

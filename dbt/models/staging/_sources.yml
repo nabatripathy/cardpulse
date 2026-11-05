@@ -17,3 +17,14 @@ sources:
       - name: campaign
       - name: account_daily_balance
       - name: posted_transaction
+      - name: offer_contact
+
+  # Written by the decision engine (cardpulse-decide) and staged into schema `decision`.
+  # On Snowflake they are Iceberg tables written by the eligibility service's event stream.
+  - name: decision
+    schema: decision
+    description: Trigger events, offer decisions and offer eligibility from the decision engine
+    tables:
+      - name: trigger_event
+      - name: offer_decision
+      - name: offer_eligibility

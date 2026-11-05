@@ -1,0 +1,103 @@
+version: 2
+
+# Built by `cardpulse-decide` after the decision engine runs (tag: decisioning).
+models:
+  - name: fct_trigger_event
+    description: Accounts that met a trigger's conditions, and whether the trigger fired or was held back
+    columns:
+      - name: trigger_event_id
+        data_tests: [unique, not_null]
+      - name: account_sk
+        data_tests: [not_null]
+      - name: status
+        data_tests:
+          - accepted_values:
+              arguments: {values: [FIRED, SKIPPED_REPEAT_GAP, SKIPPED_MAX_FIRES]}
+      - name: trigger_cd
+        data_tests:
+          - accepted_values:
+              arguments: {values: [T01_NEW_ACCOUNT_NOT_ACTIVATED, T02_SPEND_DECLINE]}
+
+  - name: fct_offer_decision
+    description: Decision log, one row per fired trigger event (Phase 4 fct_offer_decision)
+    columns:
+      - name: decision_id
+        data_tests: [unique, not_null]
+      - name: trigger_event_id
+        data_tests:
+          - unique
+          - not_null
+          - relationships:
+              arguments: {to: "ref('fct_trigger_event')", field: trigger_event_id}
+      - name: customer_sk
+        data_tests:
+          - not_null
+          - relationships:
+              arguments: {to: "ref('dim_customer')", field: customer_sk}
+      - name: account_sk
+        data_tests: [not_null]
+      - name: outcome
+        data_tests:
+          - accepted_values:
+              arguments: {values: [SENT, HOLDOUT, SUPPRESSED]}
+      - name: rule_set_version
+        data_tests: [not_null]
+      - name: trigger_version
+        data_tests: [not_null]
+    data_tests:
+      - expression_is_true:
+          arguments: {expression: "(outcome = 'SUPPRESSED') = (offer_code is null)"}
+      - expression_is_true:
+          arguments: {expression: "primary_reason_cd is not null and primary_reason_cd = reason_codes[1]",
+                      where: "outcome = 'SUPPRESSED'"}
+      - expression_is_true:
+          arguments: {expression: "offer_sk is not null and channel_cd is not null and len(reason_codes) = 0",
+                      where: "outcome <> 'SUPPRESSED'"}
+
+  - name: offer_eligibility
+    description: Offer Eligibility data product, one row per customer and active offer (contracts/offer_eligibility.yaml)
+    config:
+      contract: {enforced: true}
+    columns:
+      - name: customer_id
+        data_type: varchar
+        description: Customer business key
+        constraints: [{type: not_null}]
+        data_tests:
+          - not_null
+          - relationships:
+              arguments: {to: "ref('dim_customer')", field: customer_id}
+      - name: offer_code
+        data_type: varchar
+        description: Offer
+        constraints: [{type: not_null}]
+        data_tests: [not_null]
+      - name: is_eligible
+        data_type: boolean
+        description: The customer may receive the offer now
+        constraints: [{type: not_null}]
+        data_tests: [not_null]
+      - name: suppression_codes
+        data_type: varchar[]
+        description: Every matching reason code in catalog order, e.g. [S05, S06]; NULL when eligible
+      - name: last_contact_ts
+        data_type: timestamp with time zone
+        description: Last marketing contact
+      - name: contacts_30d
+        data_type: integer
+        description: Marketing contacts in the last 30 days
+        constraints: [{type: not_null}]
+        data_tests: [not_null]
+      - name: rule_set_version
+        data_type: varchar
+        description: Suppression rule-set version that produced the row
+        constraints: [{type: not_null}]
+        data_tests: [not_null]
+      - name: evaluated_at
+        data_type: timestamp with time zone
+        description: When the rules were evaluated
+        constraints: [{type: not_null}]
+        data_tests: [not_null]
+    data_tests:
+      - expression_is_true:
+          arguments: {expression: "is_eligible = (suppression_codes is null)"}

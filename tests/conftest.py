@@ -32,6 +32,26 @@ def make_env(tmp: Path) -> EnvConfig:
     )
 
 
+# Six months of history, so T02 (spend decline) has a baseline; no injected defects.
+HISTORY = SynthConfig(
+    seed=23,
+    business_date=date(2027, 3, 15),
+    n_customers=400,
+    history_days=190,
+    intraday_batches=4,
+    defects=DefectConfig(enabled=False),
+)
+
+
+@pytest.fixture(scope="session")
+def history_landing(tmp_path_factory) -> Path:
+    from cardpulse_synth.generator import generate
+
+    root = tmp_path_factory.mktemp("history_landing")
+    generate(HISTORY, root)
+    return root
+
+
 @pytest.fixture(scope="module")
 def tiny_landing(tmp_path_factory) -> tuple[Path, object]:
     from cardpulse_synth.generator import generate
@@ -83,7 +103,7 @@ def build_gold(lk: dict, select: list[str] | None = None, full_refresh: bool = F
     if env.gold.warehouse_path == GoldConfig().warehouse_path:
         env.gold = GoldConfig(warehouse_path=str(Path(env.lineage.path).parent / "gold" / "warehouse.duckdb"))
     staged = stage_silver(lk["writer"], [s.target_table for s in lk["silver_specs"].values()], env.gold_path())
-    run = run_build(env, select, full_refresh)
+    run = run_build(env, select, full_refresh, exclude=None if select else ["tag:decisioning"])
     record_dq(lk["writer"], run, lk["lineage"].new_run_id())
     emit_lineage(env, lk["lineage"], run)
     return staged, run

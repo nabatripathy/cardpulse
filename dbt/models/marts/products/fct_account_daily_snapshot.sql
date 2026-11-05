@@ -2,7 +2,7 @@
 -- Grain: account x snapshot date. Balances come from the processor's daily file;
 -- spend measures are computed from transactions up to and including the snapshot date.
 -- These are the inputs to the MVP triggers: T01 (card issued 10-60 days ago, no purchase)
--- and T02 (30-day spend below half the 6-month average).
+-- and T02 (30-day spend and transaction count well below their 6-month averages).
 {{ config(contract={'enforced': true}) }}
 
 with balance as (
@@ -27,6 +27,7 @@ spend as (
         coalesce(sum(t.amount) filter (where t.txn_local_date > b.balance_date - 30), 0) as spend_30d,
         count(t.amount) filter (where t.txn_local_date > b.balance_date - 30) as txn_count_30d,
         coalesce(sum(t.amount), 0) as spend_180d,
+        count(t.amount) as txn_count_180d,
         max(t.txn_local_date) as last_spend_date
     from balance b
     left join spend_txn t
@@ -75,6 +76,7 @@ joined as (
         s.spend_30d,
         s.txn_count_30d,
         s.spend_180d,
+        s.txn_count_180d,
         s.last_spend_date,
         l.lifetime_purchase_count,
         l.first_purchase_date,
@@ -127,5 +129,9 @@ select
     cast(balance_date - first_card_issue_date as integer) as days_since_card_issue,
     cast(is_card_activated as boolean) as is_card_activated,
     cast(is_fraud_flagged as boolean) as is_fraud_flagged,
-    cast(has_acquisition_bonus as boolean) as has_acquisition_bonus
+    cast(has_acquisition_bonus as boolean) as has_acquisition_bonus,
+    -- Contract 1.1.0: average monthly purchase and cash transaction count over the same window
+    -- as avg_monthly_spend_6m. T02 uses it to separate a real decline from one month of
+    -- smaller tickets (IMP-029).
+    cast(txn_count_180d / (avg_window_days / 30.4375) as decimal(10, 2)) as avg_monthly_txn_count_6m
 from joined

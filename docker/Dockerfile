@@ -31,4 +31,4 @@ RUN useradd --create-home --uid 10001 cardpulse \
     && chown -R cardpulse /data /app
 USER cardpulse
 
-CMD ["sh", "-c", "cardpulse-synth --help && cardpulse-ingest --help && cardpulse-silver --help && cardpulse-gold --help"]
+CMD ["sh", "-c", "cardpulse-synth --help && cardpulse-ingest --help && cardpulse-silver --help && cardpulse-gold --help && cardpulse-decide --help"]

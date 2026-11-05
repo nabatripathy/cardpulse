@@ -25,8 +25,8 @@ BASE = {
 
 def test_all_repo_specs_are_valid():
     specs = load_specs(REPO_ROOT / "configs" / "sources")
-    assert len(specs) == 10
-    assert len({s.target_table for s in specs}) == 10
+    assert len(specs) == 11
+    assert len({s.target_table for s in specs}) == 11
 
 
 def test_valid_spec():

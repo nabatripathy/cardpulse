@@ -57,6 +57,15 @@ class SynthConfig(BaseModel):
     prior_merchant_rename_rate: float = 0.01
     prior_consent_change_rate: float = 0.02  # marketing preferences changed today
 
+    # Marketing and service contact history (S08 contact cap, S09 repeat offer, trigger repeat
+    # rules), written from its own random stream so every other file is unchanged.
+    contact_history_days: int = Field(90, ge=0, le=365)
+    bau_contact_rate_30d: float = 0.35  # business-as-usual marketing contacts per customer per 30 days
+    service_contact_rate_30d: float = 0.5  # service messages (exempt from the contact cap)
+    prior_t01_first_fire_rate: float = 0.6  # never-activated accounts already sent the day-10 offer
+    prior_t01_second_fire_rate: float = 0.5  # of those past day 25, also sent the day-25 reminder
+    prior_t02_fire_rate: float = 0.12  # spend decliners sent a retention offer 30-85 days ago
+
     defects: DefectConfig = Field(default_factory=DefectConfig)
 
 
