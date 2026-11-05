@@ -23,20 +23,26 @@ from cardpulse_frameworks.silver.spec import load_silver_specs
 from .runner import dbt_paths, emit_lineage, read_artifacts, record_dq, run_build
 from .stage import stage_silver
 
-# MVP trigger populations, read straight from the Card Account Snapshot (Phase 4 trigger specs).
-# They preview Increment 4: the trigger engine will apply the same rules, then suppression.
-TRIGGER_SQL = {
-    "T01 new account not activated (card issued 10-60 days ago, no purchase)": """
+
+def trigger_sql() -> dict[str, str]:
+    """Trigger populations on the latest snapshot, before repeat rules and suppression.
+
+    Built from the same versioned trigger YAML the decision engine uses (configs/triggers),
+    so this preview can never drift from the rules that fire.
+    """
+    from cardpulse_frameworks.decisioning.spec import load_triggers
+
+    out = {}
+    for t in load_triggers(REPO_ROOT / "configs" / "triggers"):
+        conds = "\n          AND ".join(f"({c})" for c in t.when)
+        out[f"{t.code} {t.description} (v{t.version})"] = f"""
         SELECT count(*) FROM gold.fct_account_daily_snapshot
         WHERE snapshot_date = (SELECT max(snapshot_date) FROM gold.fct_account_daily_snapshot)
-          AND status_cd = 'OPEN' AND lifetime_purchase_count = 0
-          AND days_since_card_issue BETWEEN 10 AND 60""",
-    "T02 spend decline (30-day spend < 50% of 6-month average)": """
-        SELECT count(*) FROM gold.fct_account_daily_snapshot
-        WHERE snapshot_date = (SELECT max(snapshot_date) FROM gold.fct_account_daily_snapshot)
-          AND status_cd = 'OPEN' AND months_on_book >= 6 AND avg_monthly_spend_6m >= 200
-          AND spend_30d < 0.5 * avg_monthly_spend_6m AND coalesce(days_past_due, 0) = 0""",
-}
+          AND {conds}"""
+    return out
+
+
+TRIGGER_SQL = trigger_sql()
 
 
 def cmd_run(args: argparse.Namespace) -> int:
@@ -50,7 +56,9 @@ def cmd_run(args: argparse.Namespace) -> int:
     else:
         tables = [s.target_table for s in load_silver_specs(REPO_ROOT / "configs" / "silver")]
         staged = stage_silver(writer, tables, env.gold_path())
-    run = run_build(env, args.select, args.full_refresh, args.verbose)
+    # Decisioning models are built by `cardpulse-decide`, after the engine has run.
+    exclude = None if args.select else ["tag:decisioning"]
+    run = run_build(env, args.select, args.full_refresh, args.verbose, exclude=exclude)
     dq_rows = record_dq(writer, run, lineage.new_run_id())
     events = emit_lineage(env, lineage, run)
 
@@ -146,7 +154,7 @@ def cmd_report(args: argparse.Namespace) -> int:
                     "lr",
                 )
             )
-            print("\nTrigger populations before suppression (preview of Increment 4)\n")
+            print("\nTrigger populations before repeat rules and suppression (`cardpulse-decide` decides)\n")
             print(
                 _table(
                     ["Trigger", "Accounts"],

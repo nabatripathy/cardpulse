@@ -1,0 +1,32 @@
+entity: offer_contact
+description: Messages delivered to customers, marketing and service (append-only fact)
+owner: head_of_card_marketing
+classification: confidential
+order: 95
+source: {bronze_table: bronze.marketing_offer_contact_raw, ingest_source: marketing.offer_contact}
+target_table: silver.offer_contact
+quarantine_table: silver.offer_contact_quarantine
+load: append
+business_key: [contact_id]
+partition_field: contact_date
+unit_max_batches: 120
+dedup: {order_by: "_business_date, _file_seq, _row_num", against_target: true, partition_column: contact_date}
+columns:
+  - {name: contact_id, expr: "blank(b.contact_id)", type: VARCHAR, nullable: false}
+  - {name: customer_id, expr: "blank(b.customer_id)", type: VARCHAR, nullable: false}
+  - {name: account_id, expr: "blank(b.account_id)", type: VARCHAR}
+  - {name: campaign_id, expr: "blank(b.campaign_id)", type: VARCHAR, nullable: false}
+  - {name: offer_cd, expr: "blank(b.offer_cd)", type: VARCHAR, nullable: false}
+  - {name: trigger_cd, expr: "blank(b.trigger_cd)", type: VARCHAR}
+  - {name: channel_cd, expr: "upper(blank(b.channel_cd))", type: VARCHAR, nullable: false}
+  - {name: purpose_cd, expr: "upper(blank(b.purpose_cd))", type: VARCHAR, nullable: false,
+     description: "MARKETING counts toward the contact cap (S08); SERVICE is exempt"}
+  - {name: contact_ts, expr: "try_strptime(blank(b.contact_ts), '%Y-%m-%dT%H:%M:%SZ')", type: TIMESTAMPTZ, source: b.contact_ts, nullable: false}
+  - {name: contact_date, expr: "CAST(try_strptime(blank(b.contact_ts), '%Y-%m-%dT%H:%M:%SZ') AS DATE)",
+     type: DATE, source: b.contact_ts, nullable: false}
+quality:
+  - {id: OCT-01, check: unique, columns: [contact_id], name: One row per contact}
+  - {id: OCT-02, check: accepted_values, column: purpose_cd, values: [MARKETING, SERVICE], name: Known purpose}
+  - {id: OCT-03, check: accepted_values, column: channel_cd, values: [EMAIL, PUSH, SMS, MAIL], name: Known channel}
+  - {id: OCT-04, check: referential, column: customer_id, ref_table: silver.customer, ref_column: customer_id,
+     max_fail_pct: 0.1, name: Customer exists}

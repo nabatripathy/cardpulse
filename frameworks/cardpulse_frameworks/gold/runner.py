@@ -1,6 +1,6 @@
 """Run dbt for the Gold layer and turn its artifacts into CardPulse results.
 
-dbt runs in-process (dbtRunner). Its artifacts (manifest.json, run_results.json) are
+dbt runs in a child process. Its artifacts (manifest.json, run_results.json) are
 then read to produce: a per-model and per-test summary, data quality rows in
 ``ops.dq_results`` (layer = gold, alongside Silver's), and OpenLineage events per model
 (Silver Iceberg tables -> staging views -> Gold tables).
@@ -53,18 +53,22 @@ class GoldRun:
     target_path: Path
 
 
-def dbt_paths(env: EnvConfig) -> tuple[Path, Path]:
+def dbt_paths(env: EnvConfig, run_name: str = "gold") -> tuple[Path, Path]:
+    """Artifact and log folders. The Gold build and the decisioning build keep separate
+    artifacts, so each one's last results stay readable after the other runs."""
     work = env.gold_path().parent / "dbt"
+    if run_name != "gold":
+        work = work / run_name
     return work / "target", work / "logs"
 
 
-def invoke_dbt(env: EnvConfig, args: list[str], verbose: bool = False) -> bool:
+def invoke_dbt(env: EnvConfig, args: list[str], verbose: bool = False, run_name: str = "gold") -> bool:
     """Run dbt in a child process; returns True on success.
 
     A child process keeps dbt's DuckDB connection (and its settings) out of this process,
     so CardPulse can open the warehouse afterwards to count rows and read columns.
     """
-    target_path, log_path = dbt_paths(env)
+    target_path, log_path = dbt_paths(env, run_name)
     child_env = {
         **os.environ,
         "CARDPULSE_GOLD_PATH": str(env.gold_path()),
@@ -93,17 +97,24 @@ def invoke_dbt(env: EnvConfig, args: list[str], verbose: bool = False) -> bool:
 
 
 def run_build(
-    env: EnvConfig, select: list[str] | None = None, full_refresh: bool = False, verbose: bool = False
+    env: EnvConfig,
+    select: list[str] | None = None,
+    full_refresh: bool = False,
+    verbose: bool = False,
+    exclude: list[str] | None = None,
+    run_name: str = "gold",
 ) -> GoldRun:
     args = ["build"]
     if select:
         args += ["--select", *select]
+    if exclude:
+        args += ["--exclude", *exclude]
     if full_refresh:
         args.append("--full-refresh")
     t0 = datetime.now(UTC)
-    ok = invoke_dbt(env, args, verbose)
+    ok = invoke_dbt(env, args, verbose, run_name)
     seconds = (datetime.now(UTC) - t0).total_seconds()
-    target_path, _ = dbt_paths(env)
+    target_path, _ = dbt_paths(env, run_name)
     models, tests = read_artifacts(target_path)
     _count_rows(env, models)
     return GoldRun(ok, models, tests, round(seconds, 1), target_path)
@@ -186,7 +197,7 @@ def record_dq(writer: TableWriter, run: GoldRun, run_id: str) -> int:
 
 
 def emit_lineage(env: EnvConfig, lineage: LineageEmitter, run: GoldRun) -> int:
-    """One START + COMPLETE/FAIL event per model: inputs are its Silver sources and upstream models."""
+    """One START + COMPLETE/FAIL event per model: inputs are its Iceberg sources and upstream models."""
     ns = env.gold.lineage_namespace
     columns = _relation_columns(env)
     by_id = {m.unique_id: m for m in run.models}
@@ -194,8 +205,10 @@ def emit_lineage(env: EnvConfig, lineage: LineageEmitter, run: GoldRun) -> int:
     for m in run.models:
         inputs = []
         for dep in m.depends_on:
-            if dep.startswith("source."):
-                inputs.append({"namespace": "iceberg", "name": f"silver.{dep.split('.')[-1]}"})
+            if dep.startswith("source."):  # source.<project>.<namespace>.<table> -> Iceberg <namespace>.<table>
+                inputs.append({"namespace": "iceberg", "name": ".".join(dep.split(".")[2:])})
+            elif dep.startswith("model.") and dep not in by_id:  # built by an earlier run
+                inputs.append({"namespace": ns, "name": f"gold.{dep.split('.')[-1]}"})
             elif dep in by_id and by_id[dep].relation:
                 inputs.append({"namespace": ns, "name": by_id[dep].relation})
         run_id = lineage.new_run_id()

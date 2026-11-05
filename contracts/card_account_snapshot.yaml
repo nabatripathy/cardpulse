@@ -1,7 +1,7 @@
 # Data product contract. The dbt model enforces these columns, in this order, with these types;
 # tests/test_gold.py fails if the two drift apart.
 contract: card_account_snapshot
-version: 1.0.0
+version: 1.1.0
 status: certified
 domain: card
 owner:
@@ -137,6 +137,10 @@ schema:
   type: boolean
   nullable: false
   description: Earning a new-account sign-up bonus (suppression rule S12)
+- name: avg_monthly_txn_count_6m
+  type: decimal(10,2)
+  nullable: true
+  description: Average monthly purchase and cash transaction count over the last 6 months, or the shorter history available (added in 1.1.0)
 classification: confidential
 sla:
   freshness: ready by 06:00 CT daily
@@ -144,4 +148,7 @@ quality:
 - enforced dbt contract (names, order, types)
 - dbt tests in dbt/models/marts/products/_products.yml
 lineage: openlineage://cardpulse/gold.fct_account_daily_snapshot
+changelog:
+- {version: 1.1.0, change: added avg_monthly_txn_count_6m (nullable, appended) for trigger T02 1.1.0}
+- {version: 1.0.0, change: first certified version}
 change_policy: semver; adding nullable columns is a minor version; anything else is major with 30 days' notice

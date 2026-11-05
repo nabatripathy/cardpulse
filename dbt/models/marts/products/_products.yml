@@ -191,10 +191,13 @@ models:
     - not_null
     constraints:
     - type: not_null
+  - name: avg_monthly_txn_count_6m
+    data_type: decimal(10,2)
+    description: Average monthly purchase and cash transaction count over the last 6 months, or the shorter history available (added in 1.1.0)
   data_tests:
   - expression_is_true:
       arguments:
-        expression: spend_30d >= 0 and avg_monthly_spend_6m >= 0
+        expression: spend_30d >= 0 and avg_monthly_spend_6m >= 0 and avg_monthly_txn_count_6m >= 0
   - expression_is_true:
       arguments:
         expression: is_delinquent = (coalesce(days_past_due, 0) > 0)

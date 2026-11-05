@@ -1,13 +1,13 @@
 """Check that a docker-profile run really used the docker services.
 
-Run after `cardpulse-synth`, `cardpulse-ingest`, `cardpulse-silver` and `cardpulse-gold`
-with `--env docker`. It fails (exit 1) unless:
+Run after `cardpulse-synth`, `cardpulse-ingest`, `cardpulse-silver`, `cardpulse-gold` and
+`cardpulse-decide` with `--env docker`. It fails (exit 1) unless:
 
-* every Bronze and Silver table exists in the Iceberg REST catalog and has rows;
+* every Bronze, Silver and decision table exists in the Iceberg REST catalog and has rows;
 * the tables live in the S3 object store (``s3://``), not on a local disk;
-* every Gold model was built with rows, and every Gold dbt test passed;
-* Marquez received lineage for every Bronze ingest job, every Silver transform job and
-  every Gold model.
+* every Gold and decisioning model was built with rows, and every dbt test passed;
+* Marquez received lineage for every Bronze ingest job, every Silver transform job, the
+  decision engine and every Gold model.
 
     python tools/verify_docker_profile.py --env docker
 """
@@ -25,6 +25,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 def main(argv: list[str] | None = None) -> int:
     from cardpulse_frameworks.common.config import load_env
+    from cardpulse_frameworks.decisioning.engine import DECISION_TABLES
     from cardpulse_frameworks.ingestion.spec import load_specs
     from cardpulse_frameworks.ingestion.writers import make_writer
     from cardpulse_frameworks.silver.spec import load_silver_specs
@@ -39,7 +40,7 @@ def main(argv: list[str] | None = None) -> int:
 
     failures: list[str] = []
     rows = []
-    for table in [s.target_table for s in bronze] + [s.target_table for s in silver]:
+    for table in [s.target_table for s in bronze] + [s.target_table for s in silver] + DECISION_TABLES:
         if not w.table_exists(table):
             failures.append(f"{table}: missing")
             continue
@@ -54,11 +55,16 @@ def main(argv: list[str] | None = None) -> int:
     gold_rows = []
     from cardpulse_frameworks.gold.runner import _count_rows, dbt_paths, read_artifacts
 
-    target_path, _ = dbt_paths(env)
-    models, tests = read_artifacts(target_path) if (target_path / "run_results.json").exists() else ([], [])
+    models, tests = [], []
+    for run_name, command in (("gold", "cardpulse-gold run"), ("decide", "cardpulse-decide run")):
+        target_path, _ = dbt_paths(env, run_name)
+        if not (target_path / "run_results.json").exists():
+            failures.append(f"no {run_name} dbt run results; run `{command}` first")
+            continue
+        m, t = read_artifacts(target_path)
+        models += m
+        tests += t
     _count_rows(env, models)
-    if not models:
-        failures.append("no Gold dbt run results; run `cardpulse-gold run` first")
     for m in models:
         if m.status != "success":
             failures.append(f"gold model {m.name}: {m.status}")
@@ -79,6 +85,7 @@ def main(argv: list[str] | None = None) -> int:
             {f"ingest.{s.name}" for s in bronze}
             | {f"silver.{s.entity}" for s in silver}
             | {f"gold.{m.name}" for m in models}
+            | {"decide.engine"}
         )
         missing = sorted(expected - jobs)
         if missing:
@@ -90,10 +97,10 @@ def main(argv: list[str] | None = None) -> int:
     print("| Table | Rows | Location |\n|---|---:|---|")
     for table, n, loc in rows:
         print(f"| {table} | {n:,} | {loc} |")
-    print("\n| Gold model | Rows |\n|---|---:|")
+    print("\n| Gold model | Rows |\n|---|---:|")  # Gold and decisioning builds
     for rel, n in gold_rows:
         print(f"| {rel} | {n:,} |")
-    print(f"\nGold dbt tests: {len(tests)}, passing: {len(tests) - len(failing_tests)}")
+    print(f"\nGold and decisioning dbt tests: {len(tests)}, passing: {len(tests) - len(failing_tests)}")
     print(f"\nMarquez jobs in namespace {env.lineage.namespace}: {len(jobs)}")
     if failures:
         print("\nFAILED\n" + "\n".join(f"- {f}" for f in failures))

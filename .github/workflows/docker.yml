@@ -12,40 +12,47 @@ env:
   IMAGE: ghcr.io/nabatripathy/cardpulse
 
 jobs:
+  # One native build per architecture (GitHub's free Arm runners for public repositories),
+  # each smoke-tested on its own CPU; on main, a multi-arch manifest joins them, so Intel and
+  # Apple-chip machines pull the same tag and no --platform flag is needed.
   image:
-    name: image (build, smoke test, publish on main)
-    runs-on: ubuntu-latest
+    name: image ${{ matrix.arch }} (build, smoke test, push on main)
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {arch: amd64, runner: ubuntu-latest}
+          - {arch: arm64, runner: ubuntu-24.04-arm}
+    runs-on: ${{ matrix.runner }}
     permissions:
       contents: read
       packages: write
     steps:
       - uses: actions/checkout@v5
 
-      - name: Set up QEMU (arm64 emulation for the Apple-chip image)
-        uses: docker/setup-qemu-action@v3
-
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Build the image (amd64, loaded for the smoke test)
+      - name: Build the image (linux/${{ matrix.arch }}, native)
         uses: docker/build-push-action@v6
         with:
           context: .
           file: docker/Dockerfile
-          platforms: linux/amd64
+          platforms: linux/${{ matrix.arch }}
           tags: cardpulse:ci
           load: true
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          cache-from: type=gha,scope=${{ matrix.arch }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.arch }}
 
-      - name: Smoke test inside the image (small portfolio, local profile, through Gold)
+      - name: Smoke test inside the image (small portfolio, local profile, through decisions)
         run: |
           docker run --rm cardpulse:ci sh -c "
             cardpulse-synth --config synthetic-data/config/small.yaml --env local --clean &&
             cardpulse-ingest run --env local --all &&
             cardpulse-silver run --env local --fail-on-reject &&
             cardpulse-gold run --env local &&
-            cardpulse-gold report --env local"
+            cardpulse-decide run --env local &&
+            cardpulse-decide report --env local"
 
       - name: Image size
         run: docker image ls cardpulse:ci --format '{{.Repository}}:{{.Tag}} {{.Size}}'
@@ -58,28 +65,38 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Short commit tag
-        id: tag
-        run: echo "short=$(git rev-parse --short=12 HEAD)" >> "$GITHUB_OUTPUT"
-
-      # amd64 + arm64 (Apple-chip Macs run it natively, no --platform flag). On pull requests this
-      # proves the arm64 build works; on main it publishes the multi-arch image.
-      - name: Build multi-arch image (amd64 + arm64), publish on main
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          file: docker/Dockerfile
-          platforms: linux/amd64,linux/arm64
-          push: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
-          tags: |
-            ${{ env.IMAGE }}:${{ steps.tag.outputs.short }}
-            ${{ env.IMAGE }}:latest
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-
-      - name: Summary
+      - name: Push the ${{ matrix.arch }} image
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-        run: echo "Published $IMAGE:${{ steps.tag.outputs.short }} and $IMAGE:latest for linux/amd64 and linux/arm64" >> "$GITHUB_STEP_SUMMARY"
+        run: |
+          tag="$IMAGE:${GITHUB_SHA::12}-${{ matrix.arch }}"
+          docker tag cardpulse:ci "$tag"
+          docker push "$tag"
+
+  publish:
+    name: publish multi-arch image (main)
+    needs: image
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      packages: write
+    steps:
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Join amd64 and arm64 into one tag (commit and latest)
+        run: |
+          short="${GITHUB_SHA::12}"
+          docker buildx imagetools create -t "$IMAGE:$short" -t "$IMAGE:latest" \
+            "$IMAGE:$short-amd64" "$IMAGE:$short-arm64"
+          docker buildx imagetools inspect "$IMAGE:latest"
+          echo "Published $IMAGE:$short and $IMAGE:latest for linux/amd64 and linux/arm64" >> "$GITHUB_STEP_SUMMARY"
 
   docker-profile:
     name: docker-profile (S3 store, Iceberg REST, Marquez end to end)
@@ -115,7 +132,7 @@ jobs:
       - name: Wait for the object store, catalog and Marquez
         run: python3 tools/wait_for.py --timeout 240 http://localhost:9333/cluster/status http://localhost:8181/v1/config http://localhost:5000/api/v1/namespaces
 
-      - name: Run generate, Bronze, Silver, Gold and verification in the runner
+      - name: Run generate, Bronze, Silver, Gold, decisions and verification in the runner
         run: |
           set -o pipefail
           docker compose --profile run run --rm cardpulse 2>&1 | tee runner.log

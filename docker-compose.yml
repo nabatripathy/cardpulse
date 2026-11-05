@@ -89,9 +89,11 @@ services:
              cardpulse-ingest run --env docker --all &&
              cardpulse-silver run --env docker --fail-on-reject &&
              cardpulse-gold run --env docker &&
+             cardpulse-decide run --env docker &&
              cardpulse-ingest report --env docker &&
              cardpulse-silver report --env docker &&
              cardpulse-gold report --env docker &&
+             cardpulse-decide report --env docker &&
              python tools/verify_docker_profile.py --env docker"
 
 volumes:

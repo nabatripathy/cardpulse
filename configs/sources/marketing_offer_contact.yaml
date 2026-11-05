@@ -1,0 +1,26 @@
+# Marketing and service contact history from the delivery platforms (S08 contact cap,
+# S09 repeat offer, trigger repeat rules). One file per contact date.
+source: marketing
+entity: offer_contact
+description: Every message delivered to a customer, marketing or service, with channel and offer
+owner: head_of_card_marketing
+classification: confidential
+format: csv
+delimiter: ","
+file_glob: "marketing/offer_contact/business_date=*/marketing_offer_contact_*.csv"
+file_name_regex: 'marketing_offer_contact_(?P<business_date>\d{8})_(?P<seq>\d{4})\.csv'
+target_table: bronze.marketing_offer_contact_raw
+quarantine_table: bronze.marketing_offer_contact_raw_quarantine
+key_columns: [contact_id]
+max_quarantine_pct: 0.5
+quarantine_floor: 2
+columns:
+  - {name: contact_id, required: true}
+  - {name: customer_id, required: true}
+  - {name: account_id}
+  - {name: campaign_id, required: true}
+  - {name: offer_cd, required: true}
+  - {name: trigger_cd}
+  - {name: channel_cd, required: true}
+  - {name: purpose_cd, required: true}
+  - {name: contact_ts, required: true}

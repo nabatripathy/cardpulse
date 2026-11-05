@@ -15,9 +15,8 @@ import yaml
 from cardpulse_frameworks.common.config import REPO_ROOT
 from cardpulse_frameworks.gold.cli import TRIGGER_SQL
 from cardpulse_frameworks.silver.pipeline import DQ_RESULTS_TABLE
-from cardpulse_synth.config import DefectConfig, SynthConfig
-from cardpulse_synth.generator import SyntheticBank, generate
-from conftest import TINY, build_gold, build_lake
+from cardpulse_synth.generator import SyntheticBank
+from conftest import HISTORY, TINY, build_gold, build_lake
 
 BD = TINY.business_date
 PRODUCTS = {"customer_360": "customer_360", "card_account_snapshot": "fct_account_daily_snapshot"}
@@ -150,21 +149,9 @@ def test_incremental_run_adds_only_new_transactions(tiny_landing, tmp_path):
 
 
 # ---------------------------------------------------------------- six months of history (T02)
-HISTORY = SynthConfig(
-    seed=23,
-    business_date=date(2027, 3, 15),
-    n_customers=400,
-    history_days=190,
-    intraday_batches=4,
-    defects=DefectConfig(enabled=False),
-)
-
-
 @pytest.fixture(scope="module")
-def history_gold(tmp_path_factory):
-    landing = tmp_path_factory.mktemp("history_landing")
-    generate(HISTORY, landing)
-    lk = build_lake(tmp_path_factory.mktemp("history_lake"), landing)
+def history_gold(history_landing, tmp_path_factory):
+    lk = build_lake(tmp_path_factory.mktemp("history_lake"), history_landing)
     lk["staged"], lk["run"] = build_gold(lk)
     return lk
 
@@ -173,25 +160,23 @@ def test_t02_population_finds_planted_spend_decliners(history_gold):
     assert history_gold["run"].success
     bank = SyntheticBank(HISTORY).build()
     planted = set(bank.acct_no[bank.decliner])
-    eligible = {
-        r[0]
-        for r in q(
-            history_gold,
-            """
-        SELECT account_id FROM gold.fct_account_daily_snapshot
+    base = """SELECT account_id FROM gold.fct_account_daily_snapshot
         WHERE status_cd = 'OPEN' AND months_on_book >= 6 AND avg_monthly_spend_6m >= 200
-          AND coalesce(days_past_due, 0) = 0""",
-        )
-    }
+          AND coalesce(days_past_due, 0) = 0"""
+    eligible = {r[0] for r in q(history_gold, base)}
     sql = next(v for k, v in TRIGGER_SQL.items() if k.startswith("T02")).replace("SELECT count(*)", "SELECT account_id")
-    found = {r[0] for r in q(history_gold, sql)}
+    found = {r[0] for r in q(history_gold, sql)} & eligible
+    v1_0 = {r[0] for r in q(history_gold, base + " AND spend_30d < 0.5 * avg_monthly_spend_6m")}
     target = planted & eligible
     assert len(target) >= 10
-    # Decliners keep 10-40% of their usual purchase count in the last 30 days, and that window is part
-    # of the 6-month average, so the expected ratio at the top of the range (~0.44) sits just under
-    # the 0.5 cutoff; Poisson noise pushes a few over it. That is the business rule working, not a
-    # pipeline defect, so the floor is set below the ~0.8 observed at seed 23.
-    assert len(found & target) / len(target) >= 0.75
+
+    # T02 1.1.0 also requires the purchase count to fall (IMP-029). Decliners keep 10-40% of
+    # their usual purchases in the last 30 days, and that window is part of the 6-month average,
+    # so the expected ratio at the top of the range sits near the cutoffs and Poisson noise pushes
+    # a few over: recall is about 0.78 at default scale. On this 32-decliner portfolio one account
+    # moves recall by 0.03, so the floor is 0.65; the point of 1.1.0 is precision, checked below.
+    assert len(found & target) / len(target) >= 0.65
+    assert len(found & target) / len(found) > len(v1_0 & target) / len(v1_0)
 
 
 def test_spend_30d_matches_silver_transactions(history_gold):

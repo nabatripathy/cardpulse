@@ -24,11 +24,15 @@ models:
     staging:
       +schema: staging
       +materialized: view
+      decision:
+        +tags: ["decisioning"]
     marts:
       +schema: gold
       +materialized: table
       products:
         +tags: ["data_product"]
+      decisioning:
+        +tags: ["decisioning"]
 
 tests:
   cardpulse:

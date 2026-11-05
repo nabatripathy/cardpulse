@@ -64,3 +64,17 @@ index records the decisions that shape this repository.
 | IMP-026 | The trigger populations are previewed in `cardpulse-gold report` with the Phase 4 rule as written; T02's precision finding is recorded for Increment 4 rather than changing the rule here | Changes to a business rule go through the trigger owner, measured against the planted population |
 | IMP-027 | The image is built for `linux/amd64` and `linux/arm64` with buildx and QEMU; arm64 is built on every pull request and published on merge | Apple-chip Macs run it natively without `--platform` |
 
+
+## Decisions made during Increment 4 (decisioning)
+
+| ID | Decision | Rationale |
+|---|---|---|
+| IMP-028 | Triggers and suppression rules are versioned YAML whose conditions are SQL over a fixed set of columns; a batch engine evaluates them with DuckDB over Gold, writes the decision log to Iceberg (`decision.*`) and publishes it to Gold through dbt with tests | Compliance reviews rules as text (Phase 4); one rule definition serves the batch engine now and the eligibility service later; Iceberg keeps an immutable, time-travel audit trail |
+| IMP-029 | T02 moves to 1.1.0: 30-day spend under 60% **and** purchase count under 50% of their 6-month averages. The Card Account Snapshot gains `avg_monthly_txn_count_6m` (contract 1.1.0, appended, nullable) | Measured against 616 planted decliners: the Phase 4 rule had precision 0.29; a minimum transaction count (0.30) and two-day confirmation (0.32) barely helped, because consecutive 30-day windows overlap. Adding frequency gives 0.56 for a recall loss of 0.03. A count-only rule scores higher but partly mirrors how the generator plants decliners, so spend stays in the rule |
+| IMP-030 | Holdout = a stable 0–99 bucket from a hash of customer and trigger, applied after suppression (only eligible decisions are held out) | The same customer is in or out of the holdout every day and on every engine, and the treated and holdout groups are comparable, which lift measurement needs |
+| IMP-031 | Repeat rules and contact counts read the delivery platforms' contact history plus this platform's own earlier decisions; a `SENT` decision counts as a contact until delivery feedback exists | A customer is never re-triggered or over-contacted because a send has not yet come back from the delivery platform |
+| IMP-032 | One marketing message per customer per day: when two triggers reach the same customer, the later one (trigger order, then account) is suppressed with S08 | The Phase 4 contact cap counts messages, not triggers |
+| IMP-033 | Contact history (`marketing.offer_contact`) is a new source, generated from its own random stream for the 90 days before the business date | S08, S09 and the repeat rules need history to act on; every other generated file stays byte-identical |
+| IMP-034 | The Offer Eligibility product evaluates the same rules at customer level: account columns become customer aggregates (any open account, maximum days past due, any fraud or sign-up bonus flag) | The product's grain is customer x offer (Phase 4 contract); one rule file serves both evaluations |
+| IMP-035 | The image is built natively on GitHub's Intel and Arm runners and joined into one multi-arch tag on merge (replaces QEMU emulation, IMP-027) | The Arm build fell from about 25 minutes to a few, and the Arm image is now smoke-tested on an Arm CPU |
+| IMP-036 | The Gold report's trigger preview is generated from the trigger YAML | The preview can never drift from the rules that fire |

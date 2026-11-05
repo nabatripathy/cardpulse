@@ -84,3 +84,22 @@ models:
         data_tests:
           - accepted_values:
               arguments: {values: [PURCHASE, REFUND, CASH, PAYMENT]}
+
+  - name: fct_offer_contact
+    description: Messages delivered to customers, marketing and service (S08, S09, trigger repeat rules)
+    columns:
+      - name: contact_id
+        data_tests: [unique, not_null]
+      - name: customer_sk
+        data_tests:
+          - not_null
+          - relationships:
+              arguments: {to: "ref('dim_customer')", field: customer_sk}
+      - name: purpose_cd
+        data_tests:
+          - accepted_values:
+              arguments: {values: [MARKETING, SERVICE]}
+      - name: channel_cd
+        data_tests:
+          - accepted_values:
+              arguments: {values: [EMAIL, PUSH, SMS, MAIL]}

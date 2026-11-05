@@ -1,0 +1,17 @@
+# Trigger T01 (Phase 4 rule specification). Reviewed by Compliance as text, not code.
+# `when` conditions are SQL over one row of gold.fct_account_daily_snapshot on the business
+# date; all must hold. Every input named in `record` is kept on the trigger event for audit.
+trigger: T01_NEW_ACCOUNT_NOT_ACTIVATED
+version: 1.0.0
+description: New account whose card was issued 10-60 days ago and has never been used for a purchase
+entity: account
+evaluate: daily
+when:
+  - days_since_card_issue BETWEEN 10 AND 60
+  - status_cd = 'OPEN'
+  - lifetime_purchase_count = 0
+record: [days_since_card_issue, lifetime_purchase_count, is_card_activated]
+repeat: {max_fires: 2, min_gap_days: 15, lookback_days: 60}   # day 10 and day 25
+offers: [ACT_BONUS_TIERED, WALLET_PROVISION_NUDGE]   # rank order; the propensity model ranks them later
+channels: [EMAIL, PUSH]                              # first channel the customer consents to
+holdout_pct: 25                                      # first 8 weeks, then 10 (ADR-030)

@@ -1,8 +1,9 @@
-# Data product contract (Phase 4 design). Built in Increment 4 (Gold and decisioning);
-# kept here from the start so CI can validate contracts as they are added (PT-06).
+# Data product contract (Phase 4 design), built in Increment 4. The dbt model
+# (dbt/models/marts/decisioning/offer_eligibility.sql) enforces these columns, in this order,
+# with these types; tests/test_decide.py fails if the two drift apart.
 contract: offer_eligibility
 version: 1.0.0
-status: draft                # draft | certified | deprecated
+status: certified            # draft | certified | deprecated
 domain: marketing
 owner:
   business: head_of_card_marketing
@@ -10,20 +11,25 @@ owner:
   compliance_signoff: required
 description: >
   One row per customer and active offer stating whether the customer may
-  receive the offer now, and if not, why (reason codes S01-S12).
+  receive the offer now, and if not, why (reason codes S01-S12, in catalog order).
 grain: [customer_id, offer_code]
 location:
+  dbt_model: offer_eligibility
+  local: 'warehouse.duckdb: gold.offer_eligibility'
   snowflake: CARDPULSE_PROD.GOLD.OFFER_ELIGIBILITY
   online: dynamodb://cardpulse-eligibility   # pk=customer_id, sk=offer_code
+rules:
+  triggers: configs/triggers/
+  suppression: configs/eligibility/suppression_rules.yaml
 schema:
-  - {name: customer_id,        type: varchar(20),  nullable: false}
-  - {name: offer_code,         type: varchar(20),  nullable: false}
-  - {name: is_eligible,        type: boolean,      nullable: false}
-  - {name: suppression_codes,  type: array,        nullable: true, description: "ordered reason codes, e.g. [S01, S05]"}
-  - {name: last_contact_ts,    type: timestamp_tz, nullable: true}
-  - {name: contacts_30d,       type: number(3),    nullable: false}
-  - {name: rule_set_version,   type: varchar(12),  nullable: false}
-  - {name: evaluated_at,       type: timestamp_tz, nullable: false}
+  - {name: customer_id,       type: varchar,                  nullable: false}
+  - {name: offer_code,        type: varchar,                  nullable: false}
+  - {name: is_eligible,       type: boolean,                  nullable: false}
+  - {name: suppression_codes, type: "varchar[]",              nullable: true, description: "ordered reason codes, e.g. [S05, S06]; NULL when eligible"}
+  - {name: last_contact_ts,   type: timestamp with time zone, nullable: true}
+  - {name: contacts_30d,      type: integer,                  nullable: false}
+  - {name: rule_set_version,  type: varchar,                  nullable: false}
+  - {name: evaluated_at,      type: timestamp with time zone, nullable: false}
 classification: confidential
 sla:
   freshness: 1h
@@ -35,6 +41,8 @@ quality:
   - {check: expression,  rule: "is_eligible = (suppression_codes is null)"}
   - {check: referential, column: customer_id, references: GOLD.DIM_CUSTOMER}
   - {check: freshness,   column: evaluated_at, max_age: 2h}
-lineage: openlineage://cardpulse/gold/offer_eligibility
+lineage: openlineage://cardpulse/gold.offer_eligibility
 consumers: [eligibility_service, marketing_analytics]
+changelog:
+  - {version: 1.0.0, change: "first certified version; types written as the dbt contract's (Phase 4 draft used Snowflake types)"}
 change_policy: semver; breaking changes need a new major version and 30 days' notice

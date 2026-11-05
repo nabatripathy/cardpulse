@@ -25,10 +25,11 @@ jobs:
           ruff format --check .
       - name: Block card numbers in the repository (PCI guard)
         run: python tools/scan_repo_for_pans.py
-      - name: Validate source specs
+      - name: Validate source, Silver, trigger and rule specs
         run: |
           python -c "from cardpulse_frameworks.ingestion.spec import load_specs; print(len(load_specs('configs/sources')), 'source specs valid')"
           python -c "from cardpulse_frameworks.silver.spec import load_silver_specs; print(len(load_silver_specs('configs/silver')), 'silver specs valid')"
+          python -c "from cardpulse_frameworks.decisioning.spec import load_triggers, load_rule_set; print(len(load_triggers('configs/triggers')), 'triggers and', len(load_rule_set('configs/eligibility/suppression_rules.yaml').rules), 'suppression rules valid')"
       - name: Unit and integration tests
         run: pytest
       - name: End-to-end smoke run (small portfolio, local profile)
@@ -37,9 +38,11 @@ jobs:
           cardpulse-ingest run --env local --all
           cardpulse-silver run --env local --fail-on-reject
           cardpulse-gold run --env local
+          cardpulse-decide run --env local
           cardpulse-ingest report --env local
           cardpulse-silver report --env local
           cardpulse-gold report --env local
+          cardpulse-decide report --env local
       - name: Gold rerun is a no-op (Silver unchanged, nothing restaged)
         run: |
           cardpulse-gold run --env local | tee gold-rerun.txt

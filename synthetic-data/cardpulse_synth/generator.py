@@ -8,6 +8,9 @@ The portfolio is built to exercise the MVP:
 * Suppression populations: closed, charged-off, blocked, delinquent, fraud-flagged,
   deceased, opted-out and do-not-solicit customers, plus new accounts already
   earning a sign-up bonus (S12).
+* Contact history: marketing and service contacts over the last 90 days, so the
+  contact cap (S08), the repeat-offer rule (S09) and the trigger repeat rules have
+  customers to act on.
 
 Everything is seeded, so the same config always produces the same files.
 """
@@ -76,6 +79,17 @@ BALANCE_COLUMNS = ["ACCT_NO", "BUS_DT", "STMT_BAL", "CURR_BAL", "REVOLV_BAL", "A
 MERCHANT_COLUMNS = ["MERCH_ID", "MERCH_NM", "MCC", "CITY", "STATE_CD", "COUNTRY_CD"]
 MCC_COLUMNS = ["MCC", "MCC_DESC", "CATEGORY_GRP"]
 CONSENT_COLUMNS = ["customer_id", "channel_cd", "purpose_cd", "consent_status", "source_cd", "captured_ts"]
+CONTACT_COLUMNS = [
+    "contact_id",
+    "customer_id",
+    "account_id",
+    "campaign_id",
+    "offer_cd",
+    "trigger_cd",
+    "channel_cd",
+    "purpose_cd",
+    "contact_ts",
+]
 CAMPAIGN_COLUMNS = [
     "campaign_id",
     "campaign_name",
@@ -519,6 +533,7 @@ class SyntheticBank:
         self._write_consent(root, track)
         self._write_campaigns(root, track)
         self._write_transactions(root, m, track)
+        contacts = self._write_contacts(root, track)
 
         if self.cfg.prior_snapshot:
             self._write_prior_snapshot(root, m, track)
@@ -538,9 +553,110 @@ class SyntheticBank:
             "designed_spend_decliners": int(self.decliner.sum()),
             "delinquent_accounts": int(self.delinquent.sum()),
             "acquisition_bonus_accounts": int(self.acq_bonus.sum()),
+            **contacts,
         }
         m.write(root)
         return m
+
+    def _write_contacts(self, root: Path, track) -> dict[str, int]:
+        """Contact history for the days before the business date, one file per contact date.
+
+        Business-as-usual marketing and service messages for every customer, plus earlier
+        sends of the MVP triggers: T01's day-10 offer (and for some the day-25 reminder) to
+        never-activated accounts, and T02 retention offers to some decliners 30-85 days ago.
+        Drawn from a separate random stream, so every other file is unchanged.
+        """
+        cfg, bd, days = self.cfg, self.bd_o, self.cfg.contact_history_days
+        if days == 0:
+            return {}
+        rng = np.random.default_rng(cfg.seed + 15_485_863)
+        n, na = cfg.n_customers, self.na
+        rows: list[tuple] = []  # (day, customer, account, campaign, offer, trigger, channel, purpose)
+
+        def bau(rate: float, purpose: str, campaign: str, offer: str) -> None:
+            counts = rng.poisson(rate * days / 30, n)
+            cust = np.repeat(np.arange(n), counts)
+            day = bd - rng.integers(1, days + 1, len(cust))
+            channel = np.where(rng.random(len(cust)) < 0.75, "EMAIL", "PUSH")
+            rows.extend(
+                (int(d), self.cust_id[c], "", campaign, offer, "", ch, purpose)
+                for d, c, ch in zip(day, cust, channel, strict=True)
+            )
+
+        bau(cfg.bau_contact_rate_30d, "MARKETING", "CMP_BAU_NEWS", "BAU_NEWSLETTER")
+        bau(cfg.service_contact_rate_30d, "SERVICE", "SVC_STATEMENT", "SVC_STATEMENT_READY")
+
+        t01, t02 = "T01_NEW_ACCOUNT_NOT_ACTIVATED", "T02_SPEND_DECLINE"
+        issue = self.card_issue[:na]
+        fired_t01 = fired_t01_twice = fired_t02 = 0
+        for i in np.nonzero(self.never_activates & (issue >= bd - 60) & (issue <= bd - 11))[0]:
+            if rng.random() >= cfg.prior_t01_first_fire_rate:
+                continue
+            c = self.cust_id[self.acct_cust[i]]
+            rows.append(
+                (
+                    int(issue[i]) + 10,
+                    c,
+                    self.acct_no[i],
+                    "CMP_T01_ACT_01",
+                    "ACT_BONUS_TIERED",
+                    t01,
+                    "EMAIL",
+                    "MARKETING",
+                )
+            )
+            fired_t01 += 1
+            if issue[i] + 25 < bd and rng.random() < cfg.prior_t01_second_fire_rate:
+                rows.append(
+                    (
+                        int(issue[i]) + 25,
+                        c,
+                        self.acct_no[i],
+                        "CMP_T01_ACT_02",
+                        "WALLET_PROVISION_NUDGE",
+                        t01,
+                        "PUSH",
+                        "MARKETING",
+                    )
+                )
+                fired_t01_twice += 1
+        for i in np.nonzero(self.decliner)[0]:
+            if rng.random() < cfg.prior_t02_fire_rate:
+                rows.append(
+                    (
+                        bd - int(rng.integers(30, 86)),
+                        self.cust_id[self.acct_cust[i]],
+                        self.acct_no[i],
+                        "CMP_T02_RET_01",
+                        "RET_CATEGORY_BOOST",
+                        t02,
+                        "EMAIL",
+                        "MARKETING",
+                    )
+                )
+                fired_t02 += 1
+
+        rows = [r for r in rows if bd - days <= r[0] < bd]
+        rows.sort(key=lambda r: (r[0], r[1], r[3]))
+        by_day: dict[int, list[tuple]] = {}
+        for r in rows:
+            by_day.setdefault(r[0], []).append(r)
+        epoch = date(1970, 1, 1)
+        for d in range(bd - days, bd):
+            day = epoch + timedelta(days=d)
+            out = []
+            for k, r in enumerate(by_day.get(d, [])):
+                secs = int(rng.integers(13 * 3600, 23 * 3600))  # 13:00-23:00 UTC, daytime in the US
+                ts = f"{day:%Y-%m-%d}T{secs // 3600:02d}:{secs % 3600 // 60:02d}:{secs % 60:02d}Z"
+                out.append((f"K{day:%Y%m%d}{k:06d}", r[1], r[2], r[3], r[4], r[5], r[6], r[7], ts))
+            write_csv(root, "marketing", "offer_contact", day, 1, CONTACT_COLUMNS, out)
+            track("marketing.offer_contact", 1, len(out))
+        return {
+            "contacts": len(rows),
+            "prior_t01_first_fires": fired_t01,
+            "prior_t01_second_fires": fired_t01_twice,
+            "prior_t02_fires": fired_t02,
+        }
 
     def _write_prior_snapshot(self, root: Path, m: Manifest, track) -> None:
         """Master files for the day before the business date, so Silver builds real SCD2 history.
